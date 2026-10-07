@@ -39,6 +39,7 @@ import {
   IconNotebookLM
 } from './CustomIcons';
 import { Logo5LB } from './Logo5LB';
+import { PWAInstallButton } from './PWAInstallButton';
 import { ThemeMode } from '../hooks/useTheme';
 import { Sun, Moon, Monitor } from 'lucide-react';
 
@@ -259,7 +260,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <div className="flex items-center gap-2">
               <IconNotebookLM className="w-4 h-4 shrink-0" />
-              <span className="text-xs font-semibold tracking-wide">Google NotebookLM 5LB</span>
+              <span className="text-xs font-semibold tracking-wide">Chiedi a 5LB Magazine</span>
             </div>
             <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform" />
           </button>
@@ -393,6 +394,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             );
           })}
+        </div>
+
+        {/* PWA Install Button inside menu drawer */}
+        <div className="px-4 py-2 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/60 dark:border-slate-800/60">
+          <PWAInstallButton />
         </div>
 
         {/* Bottom Drawer Footer: Info page link + Theme switch */}

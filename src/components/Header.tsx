@@ -96,14 +96,14 @@ export const Header: React.FC<HeaderProps> = ({
             <RefreshCw className="w-5 h-5" />
           </button>
 
-          {/* AI / Google NotebookLM Button */}
+          {/* Chiedi / Google NotebookLM Button */}
           <button
             onClick={onOpenNotebook}
             className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-xs sm:text-sm shadow-md active:scale-95 transition group cursor-pointer"
-            title="Apri Assistente IA Google NotebookLM 5LB"
+            title="Chiedi — Domande e ricerca semantica sulle 5 Leggi Biologiche"
           >
             <IconNotebookLM className="w-4 h-4 shrink-0" />
-            <span className="font-semibold tracking-wide">Assistente IA</span>
+            <span className="font-semibold tracking-wide">Chiedi</span>
             <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform hidden sm:inline" />
           </button>
 

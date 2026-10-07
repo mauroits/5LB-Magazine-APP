@@ -2,5 +2,7 @@
   "name": "5LB Magazine - Aggregatore & Framework",
   "description": "Aggregatore PWA ufficiale per 5LB Magazine (magazine.5lb.eu) con feed RSS sulle 5 Leggi Biologiche, risorse formative, notifiche e assistente IA.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

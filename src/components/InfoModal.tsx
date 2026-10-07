@@ -166,61 +166,26 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
               </p>
 
               <div className="space-y-3 pt-2">
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400 flex items-center justify-center shrink-0">
-                      <Mail className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">Email Redazione</h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{content.contatti.email}</p>
-                    </div>
-                  </div>
-                  <a
-                    href={`mailto:${content.contatti.email}`}
-                    className="px-3.5 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold transition"
-                  >
-                    Invia Email
-                  </a>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400 flex items-center justify-center shrink-0">
                       <Globe className="w-5 h-5" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">5LB Magazine Online</h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{content.contatti.magazineUrl}</p>
-                    </div>
-                  </div>
-                  <a
-                    href={content.contatti.magazineUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center gap-1 transition"
-                  >
-                    Visita <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                      <Globe className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">Portale Ufficiale 5LB</h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{content.contatti.mainWebsiteUrl}</p>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">Portale Ufficiale 5LB Framework</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate max-w-[220px] sm:max-w-md">
+                        {content.contatti.mainWebsiteUrl}
+                      </p>
                     </div>
                   </div>
                   <a
                     href={content.contatti.mainWebsiteUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center gap-1 transition"
+                    className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-xs active:scale-95 cursor-pointer"
                   >
-                    Visita <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Vai ai Contatti</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
               </div>

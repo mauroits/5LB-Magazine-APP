@@ -40,14 +40,14 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ isOpen, onClose })
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm sm:text-base font-bold truncate">
-                  Google NotebookLM — 5LB Knowledge Base
+                  Ricerca semantica con Gemini
                 </h2>
                 <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30">
                   <ShieldCheck className="w-3 h-3" /> Accesso Google
                 </span>
               </div>
               <p className="text-[11px] text-slate-300 truncate">
-                Assistente IA sulle 5 Leggi Biologiche (modello addestrato sulle fonti 5LB)
+                Assistente IA addestrato su 5LB Magazine
               </p>
             </div>
           </div>
@@ -99,7 +99,7 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ isOpen, onClose })
           <div className="flex items-center gap-2">
             <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
             <span>
-              Notebook pubblico collegato alle 5 Leggi Biologiche. Puoi porre domande e ottenere sintesi basate sulle fonti ufficiali.
+              Puoi porre domande, cercare articoli e ottenere sintesi basate sulle fonti di 5LB Magazine.
             </span>
           </div>
           <a

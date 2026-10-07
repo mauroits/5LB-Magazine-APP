@@ -14,6 +14,7 @@ import { TelegramModal } from './components/TelegramModal';
 import { InfoModal } from './components/InfoModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
 import {
   BloggerPost,
   ActiveFilter,
@@ -376,6 +377,9 @@ export default function App() {
 
       {/* PWA Offline indicator */}
       <OfflineIndicator />
+
+      {/* Proactive PWA Install Banner */}
+      <PWAInstallBanner />
     </div>
   );
 }
