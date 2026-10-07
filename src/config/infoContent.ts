@@ -4,16 +4,16 @@
  * ============================================================================
  * 
  * Puoi modificare facilmente tutti i testi di seguito.
- * Le modifiche avranno effetto immediato nella pagina Informazioni e nel banner IA.
+ * Le modifiche avranno effetto immediato nella pagina Informazioni e nel banner.
  */
 
-// 1. Configurazione del Banner IA (mostrato in cima alla lista degli articoli)
+// 1. Configurazione del Banner (mostrato in cima alla lista degli articoli)
 export const AI_BANNER_CONFIG = {
-  badge: 'Google NotebookLM',
-  title: 'Assistente IA sulle 5 Leggi Biologiche',
+  badge: 'Ricerca semantica',
+  title: 'Fai una domanda sulle 5 Leggi Biologiche',
   description:
-    'Interroga le fonti, sintetizza le leggi biologiche e poni quesiti con il tuo account Google.',
-  buttonText: 'Apri NotebookLM',
+    'Esplora il mondo osservato attraverso le 5LB, sintetizza le leggi biologiche e poni quesiti (account Google necessario).',
+  buttonText: 'Chiedimi',
 };
 
 // 2. Testi della Pagina Informazioni (accessibile dall'icona ℹ️)
@@ -24,17 +24,17 @@ export const INFO_PAGE_CONTENT = {
   funzioni: {
     title: 'Panoramica delle Funzionalità',
     intro:
-      'Questa Progressive Web App (PWA) è l’hub integrato per i contenuti di 5LB Magazine (magazine.5lb.eu), progettata per la consultazione fluida su smartphone, tablet e desktop.',
+      'Questa App è l’hub integrato di 5LB Magazine e 5LB Framework, progettata per la consultazione fluida su smartphone, tablet e desktop.',
     cards: [
       {
-        title: 'Aggregatore Feed RSS Live',
+        title: 'Aggregatore di notizie',
         description:
-          'Collegamento diretto alle pubblicazioni del magazine su Blogger, organizzate per sezioni informative e filtri eziologici (apparati biologici).',
+          'Collegamento diretto alle pubblicazioni del 5LB Magazine, organizzate per sezioni informative e sulla Eziologia (sintomi e apparati). Inoltre sono visualizzabili le novità social quotidiane dal canale Telegram',
       },
       {
-        title: 'Assistente IA con Google NotebookLM',
+        title: 'Assistente per una ricerca in linguaggio naturale',
         description:
-          'Accesso diretto al Notebook pubblico delle 5LB. Puoi porre domande e ottenere risposte sintetizzate sulle fonti autentiche con il tuo account Google.',
+          'Puoi porre domande e ottenere risposte sintetizzate sulle fonti di 5LB Magazine. Necessario autenticarsi con account Google.',
       },
       {
         title: 'Notifiche Push in Tempo Reale',
@@ -42,9 +42,9 @@ export const INFO_PAGE_CONTENT = {
           'Avviso immediato su smartphone e computer ad ogni nuova pubblicazione, con segnale acustico e centro notifiche integrato.',
       },
       {
-        title: 'Modalità Offline & Installazione PWA',
+        title: 'Modalità Offline & Installazione',
         description:
-          'Installabile sulla schermata home come applicazione nativa. Tutti gli articoli consultati vengono salvati in cache per la lettura anche senza connessione.',
+          'Installabile sulla schermata Home come applicazione nativa. Tutti gli articoli consultati vengono salvati in cache per la lettura anche senza connessione.',
       },
     ],
   },
@@ -54,35 +54,14 @@ export const INFO_PAGE_CONTENT = {
     title: 'Registro delle Versioni & Miglioramenti',
     releases: [
       {
-        version: 'v1.2.0 (Attuale)',
+        version: 'v1.0.0 (Attuale)',
         date: 'Ottobre 2026',
         isCurrent: true,
         notes: [
-          'Integrazione dell’immagine ufficiale Rivista-logo-1024x500-NoNeon.png sia nella Home che nel menu laterale.',
-          'Creazione del file di configurazione centrale per la modifica dei testi (pagina info e banner IA).',
-          'Gestione dei link e dell’ordine delle voci di navigazione direttamente nel backend e nei file di progetto.',
-          'Aggiunta della schermata informativa con funzioni, contatti e privacy.',
+          'Prima release.',
         ],
       },
-      {
-        version: 'v1.1.0',
-        date: 'Ottobre 2026',
-        isCurrent: false,
-        notes: [
-          'Integrazione del Google Notebook pubblico con supporto all’account Google dell’utente.',
-          'Conformità PWA con Service Worker, iconografia ad alta definizione e supporto offline.',
-          'Modalità lettore con regolazione della dimensione dei caratteri e sintesi vocale (TTS).',
-        ],
-      },
-      {
-        version: 'v1.0.0',
-        date: 'Settembre 2026',
-        isCurrent: false,
-        notes: [
-          'Prima release dell’aggregatore per magazine.5lb.eu.',
-          'Menu laterale a fisarmonica con sezioni Informazione, Formazione, Laboratorio, Consulenza, Framework ed Eziologia.',
-        ],
-      },
+      
     ],
   },
 
@@ -90,10 +69,8 @@ export const INFO_PAGE_CONTENT = {
   contatti: {
     title: 'Contatti & Riferimenti Ufficiali',
     intro:
-      'Per chiarimenti editoriali, consulenze o supporto sull’applicazione puoi fare riferimento ai canali ufficiali della redazione:',
-    email: 'mauro.sartorio@5lb.eu',
-    magazineUrl: 'https://magazine.5lb.eu',
-    mainWebsiteUrl: 'https://5lb.eu',
+      'Per chiarimenti, consulenze o supporto sull’applicazione puoi fare riferimento ai canali ufficiali:',
+    mainWebsiteUrl: 'https://framework.5lb.eu/it/contacts',
   },
 
   // Scheda: Privacy Policy
@@ -107,14 +84,14 @@ export const INFO_PAGE_CONTENT = {
         text: 'Lo stato degli articoli letti, gli articoli contrassegnati nei preferiti ("Ti piace") e le preferenze delle notifiche sono memorizzati esclusivamente nella memoria locale del tuo browser. Nessun dato personale o cronologia di lettura viene trasmesso a server esterni o terze parti.',
       },
       {
-        title: 'Accesso a Google NotebookLM',
-        text: 'L’integrazione di Google NotebookLM si appoggia direttamente all’infrastruttura di Google. Quando utilizzi il tuo account Google all’interno del notebook, l’autenticazione e la gestione delle credenziali avvengono direttamente sui server sicuri di Google nel rispetto delle policy di Google.',
+        title: 'Accesso a Google Gemini',
+        text: 'L’integrazione di Google Gemini si appoggia direttamente all’infrastruttura di Google. Quando utilizzi il tuo account Google all’interno del notebook, l’autenticazione e la gestione delle credenziali avvengono direttamente sui server sicuri di Google nel rispetto delle policy di Google.',
       },
       {
         title: 'Notifiche Push',
         text: 'Le notifiche push avvengono mediante le API standard del browser (Web Notifications API) previa esplicita autorizzazione dell’utente, senza richiedere la raccolta di numeri telefonici o indirizzi email.',
       },
     ],
-    fullPrivacyUrl: 'https://5lb.eu/privacy',
+    fullPrivacyUrl: 'https://framework.5lb.eu/it/privacy-policy',
   },
 };
