@@ -64,13 +64,17 @@ export const ArticleList: React.FC<ArticleListProps> = ({
 
   if (isLoading && posts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
-        <div className="w-12 h-12 rounded-full border-4 border-orange-500 border-t-transparent animate-spin mb-4" />
-        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-          Caricamento articoli da magazine.5lb.eu...
-        </h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Sincronizzazione dei feed RSS sulle 5 Leggi Biologiche
+      <div className="flex flex-col items-center justify-center min-h-[65vh] py-12 px-4 text-center">
+        <div className="max-w-sm sm:max-w-md w-full mb-6 rounded-2xl overflow-hidden shadow-2xl border border-blue-900/40 bg-[#000732]">
+          <img
+            src="/logoBLU_APP.jpg"
+            alt="5LB Magazine - Evidence Based News"
+            className="w-full h-auto object-contain"
+          />
+        </div>
+        <div className="w-9 h-9 rounded-full border-3 border-orange-500 border-t-transparent animate-spin mb-3" />
+        <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300">
+          Caricamento delle pubblicazioni da magazine.5lb.eu...
         </p>
       </div>
     );

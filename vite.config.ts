@@ -11,14 +11,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'logo-faviconBLU.png', 'logoBLU_APP.jpg'],
         manifest: {
           id: '/',
           name: '5LB Magazine - La rivista sulle 5 Leggi Biologiche',
           short_name: '5LB Mag',
           description: 'App ufficiale di 5LB Magazine con risorse formative e informative.',
-          theme_color: '#0e1838',
-          background_color: '#0e1838',
+          theme_color: '#000836',
+          background_color: '#000836',
           display: 'standalone',
           start_url: '/',
           scope: '/',
