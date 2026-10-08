@@ -49,7 +49,7 @@ interface SidebarProps {
   sections: NavSection[];
   activeFilter: ActiveFilter;
   onSelectFilter: (filter: ActiveFilter) => void;
-  onSelectLink: (item: NavItem) => void;
+  onSelectLink?: (item: NavItem) => void;
   onOpenNotebook: () => void;
   onOpenTelegram: () => void;
   onOpenInfo: () => void;

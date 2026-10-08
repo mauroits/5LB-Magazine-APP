@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, Bell, Sparkles, Search, RefreshCw, X } from 'lucide-react';
+import { Menu, Bell, Sparkles, Search, X } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { IconNotebookLM } from './CustomIcons';
 import { Logo5LB } from './Logo5LB';
@@ -8,8 +8,6 @@ interface HeaderProps {
   onToggleSidebar: () => void;
   onOpenNotebook: () => void;
   onOpenNotifications: () => void;
-  onRefreshFeed: () => void;
-  isRefreshing: boolean;
   unreadNotificationsCount: number;
   searchQuery: string;
   onSearchChange: (q: string) => void;
@@ -20,8 +18,6 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
   onOpenNotebook,
   onOpenNotifications,
-  onRefreshFeed,
-  isRefreshing,
   unreadNotificationsCount,
   searchQuery,
   onSearchChange,
@@ -82,18 +78,6 @@ export const Header: React.FC<HeaderProps> = ({
             title="Cerca"
           >
             <Search className="w-5 h-5" />
-          </button>
-
-          {/* Refresh RSS Feed */}
-          <button
-            onClick={onRefreshFeed}
-            disabled={isRefreshing}
-            className={`p-2 rounded-xl text-slate-200 hover:text-white hover:bg-white/10 active:scale-95 transition cursor-pointer ${
-              isRefreshing ? 'animate-spin text-orange-400' : ''
-            }`}
-            title="Aggiorna feed RSS"
-          >
-            <RefreshCw className="w-5 h-5" />
           </button>
 
           {/* Chiedi / Google NotebookLM Button */}

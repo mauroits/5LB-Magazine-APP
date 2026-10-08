@@ -75,7 +75,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       {
         id: 'info-premessa',
-        label: 'Premessa',
+        label: 'PREMESSA',
         type: 'rss',
         iconName: 'arrow-right-circle',
         rssCategory: 'PREMESSA',

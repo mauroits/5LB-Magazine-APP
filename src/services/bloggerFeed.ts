@@ -5,13 +5,46 @@ const FEED_CACHE_KEY = '5lb_magazine_posts_cache_v1';
 const READ_POSTS_KEY = '5lb_read_posts_v1';
 const FAVORITE_POSTS_KEY = '5lb_favorite_posts_v1';
 
-// Extract first image from HTML content if thumbnail is missing
+/**
+ * Upgrade low-resolution thumbnails to high-definition:
+ * - YouTube: upgrades /default.jpg (120x90) and /mqdefault.jpg to /hqdefault.jpg (480x360)
+ * - Blogger / Google User Content: upgrades /s72-c/ or =s72-c to /w800-h450-c/
+ */
+export function upgradeThumbnailUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+
+  // 1. YouTube thumbnails
+  if (url.includes('youtube.com') || url.includes('ytimg.com')) {
+    return url
+      .replace(/\/default\.jpg/i, '/hqdefault.jpg')
+      .replace(/\/mqdefault\.jpg/i, '/hqdefault.jpg')
+      .replace(/\/sddefault\.jpg/i, '/hqdefault.jpg');
+  }
+
+  // 2. Google User Content / Blogger photos
+  let upgraded = url;
+  // Upgrade slash pattern e.g. /s72-c/ or /s200/
+  upgraded = upgraded.replace(/\/s\d+(-[a-zA-Z0-9_-]+)?\//g, '/w800-h450-c/');
+  // Upgrade query param / dimension pattern e.g. =s72-c or =w72-h72
+  upgraded = upgraded.replace(/=s\d+(-[a-zA-Z0-9_-]+)?/g, '=w800-h450-c');
+  upgraded = upgraded.replace(/=w\d+(-h\d+)?(-[a-zA-Z0-9_-]+)?/g, '=w800-h450-c');
+
+  return upgraded;
+}
+
+// Extract first image or embedded YouTube thumbnail from HTML content
 function extractFirstImage(html: string): string | undefined {
   if (!html) return undefined;
+
+  // Check for embedded YouTube iframe or video ID
+  const ytMatch = html.match(/(?:youtube\.com\/(?:embed\/|v\/|watch\?v=)|youtu\.be\/)([\w-]{11})/i);
+  if (ytMatch && ytMatch[1]) {
+    return `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
+  }
+
   const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
   if (match && match[1]) {
-    // Upgrade low-res blogger thumbnail (s72-c or s200) to higher res if applicable
-    return match[1].replace(/\/s\d+(-c)?\//, '/w600-h340-c/');
+    return upgradeThumbnailUrl(match[1]);
   }
   return undefined;
 }
@@ -67,8 +100,7 @@ export function saveFavoritePostIds(ids: Set<string>) {
 
 /**
  * Fetch feed using Google Blogger's official JSONP protocol (alt=json-in-script).
- * This completely avoids browser CORS restrictions on static deployments (e.g. app.5lb.eu or GitHub Pages)
- * because <script> tag requests are cross-origin by design.
+ * Avoids browser CORS restrictions on static deployments (e.g. app.5lb.eu or GitHub Pages).
  */
 function fetchBloggerJsonp(maxResults: number, category?: string): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -118,7 +150,7 @@ export async function fetchBloggerPosts(options?: {
   category?: string;
   forceRefresh?: boolean;
 }): Promise<BloggerPost[]> {
-  const maxResults = options?.maxResults || 80;
+  const maxResults = options?.maxResults || 100;
   const category = options?.category;
   const forceRefresh = options?.forceRefresh || false;
 
@@ -138,8 +170,8 @@ export async function fetchBloggerPosts(options?: {
     return applyFilter(cachedPosts, category);
   }
 
-  // If forceRefresh is requested, clear memory cache entry to force download
-  if (forceRefresh) {
+  // If forceRefresh is requested on general feed, clear cache entry
+  if (forceRefresh && !category) {
     try {
       localStorage.removeItem(FEED_CACHE_KEY);
     } catch (e) {
@@ -149,7 +181,7 @@ export async function fetchBloggerPosts(options?: {
 
   let jsonResult: any = null;
 
-  // Method 1: Try local backend proxy /api/feed (fast when running on full-stack server)
+  // Method 1: Try local backend proxy /api/feed (fast on full-stack dev/server)
   try {
     const proxyUrl = category
       ? `/api/feed?max-results=${maxResults}&category=${encodeURIComponent(category)}`
@@ -238,9 +270,10 @@ export async function fetchBloggerPosts(options?: {
 
     const authorName = entry.author?.[0]?.name?.$t || 'Redazione 5LB';
 
+    // Upgrade thumbnail resolution (including YouTube video thumbnails)
     let thumbnail: string | undefined = undefined;
     if (entry.media$thumbnail?.url) {
-      thumbnail = entry.media$thumbnail.url.replace(/\/s\d+(-c)?\//, '/w600-h340-c/');
+      thumbnail = upgradeThumbnailUrl(entry.media$thumbnail.url);
     } else {
       thumbnail = extractFirstImage(content);
     }
@@ -261,13 +294,22 @@ export async function fetchBloggerPosts(options?: {
     };
   });
 
-  // If this was an unfiltered query, save to local cache for offline reading
-  if (!category && parsedPosts.length > 0) {
-    try {
-      localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(parsedPosts));
-    } catch (e) {
-      console.warn('LocalStorage pieno per la cache dei post:', e);
+  // Merge and update cached posts in localStorage
+  try {
+    let merged = [...cachedPosts];
+    for (const post of parsedPosts) {
+      const existingIdx = merged.findIndex((p) => p.id === post.id);
+      if (existingIdx >= 0) {
+        merged[existingIdx] = post;
+      } else {
+        merged.push(post);
+      }
     }
+    // Keep sorted by publication date descending
+    merged.sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime());
+    localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(merged.slice(0, 300)));
+  } catch (e) {
+    console.warn('LocalStorage pieno per la cache dei post:', e);
   }
 
   return parsedPosts;

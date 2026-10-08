@@ -8,9 +8,6 @@ import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { ArticleList } from './components/ArticleList';
 import { ArticleModal } from './components/ArticleModal';
-import { NotebookModal } from './components/NotebookModal';
-import { ExternalLinkModal } from './components/ExternalLinkModal';
-import { TelegramModal } from './components/TelegramModal';
 import { InfoModal } from './components/InfoModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -34,7 +31,7 @@ import {
   getStoredNotifications,
   markNotificationAsRead
 } from './services/notificationService';
-import { NAV_SECTIONS } from './config/navigation';
+import { NAV_SECTIONS, GOOGLE_NOTEBOOK_URL } from './config/navigation';
 import { useTheme } from './hooks/useTheme';
 import { Bell, ArrowRight, X } from 'lucide-react';
 
@@ -53,9 +50,6 @@ export default function App() {
   // Modals & Panels
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedPost, setSelectedPost] = useState<BloggerPost | null>(null);
-  const [selectedLinkItem, setSelectedLinkItem] = useState<NavItem | null>(null);
-  const [isNotebookOpen, setIsNotebookOpen] = useState(false);
-  const [isTelegramOpen, setIsTelegramOpen] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
@@ -237,15 +231,60 @@ export default function App() {
     );
   };
 
+  const handleOpenNotebook = () => {
+    window.open(GOOGLE_NOTEBOOK_URL, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleOpenTelegram = () => {
+    window.open('https://t.me/s/magazine5LB', '_blank', 'noopener,noreferrer');
+  };
+
+  // Dynamically load category feed when user selects a category so all posts (e.g. all 51 of OVERDIAGNOSI) are available
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (activeFilter.type === 'rss' && activeFilter.category) {
+      const loadCategoryPosts = async () => {
+        setIsLoading(true);
+        try {
+          const categoryPosts = await fetchBloggerPosts({
+            category: activeFilter.category,
+            maxResults: 150,
+          });
+          if (!isCancelled && categoryPosts.length > 0) {
+            setPosts((prev) => {
+              const map = new Map<string, BloggerPost>();
+              for (const p of prev) map.set(p.id, p);
+              for (const p of categoryPosts) map.set(p.id, p);
+              const merged = Array.from(map.values());
+              merged.sort(
+                (a, b) => new Date(b.published).getTime() - new Date(a.published).getTime()
+              );
+              return merged;
+            });
+          }
+        } catch (e) {
+          console.warn('Errore nel caricamento del feed della categoria:', e);
+        } finally {
+          if (!isCancelled) setIsLoading(false);
+        }
+      };
+
+      loadCategoryPosts();
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeFilter]);
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col font-sans">
       {/* Top Header */}
       <Header
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        onOpenNotebook={() => setIsNotebookOpen(true)}
+        onOpenNotebook={handleOpenNotebook}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
-        onRefreshFeed={() => loadFeed(true)}
-        isRefreshing={isRefreshing}
         unreadNotificationsCount={unreadNotificationsCount}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -264,9 +303,13 @@ export default function App() {
             setActiveFilter(f);
             setSearchQuery('');
           }}
-          onSelectLink={(item) => setSelectedLinkItem(item)}
-          onOpenNotebook={() => setIsNotebookOpen(true)}
-          onOpenTelegram={() => setIsTelegramOpen(true)}
+          onSelectLink={(item) => {
+            if (item.targetUrl) {
+              window.open(item.targetUrl, '_blank', 'noopener,noreferrer');
+            }
+          }}
+          onOpenNotebook={handleOpenNotebook}
+          onOpenTelegram={handleOpenTelegram}
           onOpenInfo={() => setIsInfoOpen(true)}
           unreadCount={unreadCount}
           totalCount={posts.length}
@@ -291,7 +334,7 @@ export default function App() {
               setActiveFilter({ type: 'quick', id: 'all' });
               setSearchQuery('');
             }}
-            onOpenNotebook={() => setIsNotebookOpen(true)}
+            onOpenNotebook={handleOpenNotebook}
           />
         </main>
       </div>
@@ -344,21 +387,6 @@ export default function App() {
         onClose={() => setSelectedPost(null)}
         onToggleFavorite={handleToggleFavorite}
         isFavorite={selectedPost ? selectedPost.isFavorite || false : false}
-      />
-
-      <NotebookModal
-        isOpen={isNotebookOpen}
-        onClose={() => setIsNotebookOpen(false)}
-      />
-
-      <TelegramModal
-        isOpen={isTelegramOpen}
-        onClose={() => setIsTelegramOpen(false)}
-      />
-
-      <ExternalLinkModal
-        item={selectedLinkItem}
-        onClose={() => setSelectedLinkItem(null)}
       />
 
       <InfoModal
