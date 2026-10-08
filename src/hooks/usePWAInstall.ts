@@ -9,6 +9,7 @@ export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [isOpera, setIsOpera] = useState(false);
 
   useEffect(() => {
     // Detect standalone mode (already installed)
@@ -17,10 +18,14 @@ export function usePWAInstall() {
       (window.navigator as unknown as { standalone?: boolean }).standalone === true;
     setIsInstalled(isStandalone);
 
-    // Detect iOS devices
     const userAgent = window.navigator.userAgent.toLowerCase();
+    // Detect iOS devices
     const isIOSDevice = /iphone|ipad|ipod/.test(userAgent);
     setIsIOS(isIOSDevice);
+
+    // Detect Opera / Opera Mobile
+    const isOperaDevice = /opr\/|opera/i.test(userAgent);
+    setIsOpera(isOperaDevice);
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
@@ -57,6 +62,7 @@ export function usePWAInstall() {
     isInstallable: !!deferredPrompt,
     isInstalled,
     isIOS,
+    isOpera,
     install,
   };
 }

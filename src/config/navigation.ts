@@ -71,7 +71,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'informazione',
     title: 'INFORMAZIONE',
     collapsible: true,
-    defaultOpen: true,
+    defaultOpen: false,
     items: [
       {
         id: 'info-premessa',
@@ -153,7 +153,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'formazione',
     title: 'FORMAZIONE',
     collapsible: true,
-    defaultOpen: true,
+    defaultOpen: false,
     items: [
       {
         id: 'form-dex',
@@ -203,7 +203,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'laboratorio-presenza',
     title: 'LABORATORIO DI PRESENZA',
     collapsible: true,
-    defaultOpen: true,
+    defaultOpen: false,
     items: [
       {
         id: 'lab-presenza',
@@ -229,7 +229,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'consulenza-individuale',
     title: 'CONSULENZA INDIVIDUALE',
     collapsible: true,
-    defaultOpen: true,
+    defaultOpen: false,
     items: [
       {
         id: 'cons-chi',
@@ -255,7 +255,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'framework',
     title: '5LB FRAMEWORK',
     collapsible: true,
-    defaultOpen: true,
+    defaultOpen: false,
     items: [
       {
         id: 'frame-7passi',
@@ -297,7 +297,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'eziologia',
     title: 'EZIOLOGIA',
     collapsible: true,
-    defaultOpen: true,
+    defaultOpen: false,
     items: [
       {
         id: 'guida-studio',

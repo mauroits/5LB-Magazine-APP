@@ -146,6 +146,7 @@ export default function App() {
         (p) =>
           p.title.toLowerCase().includes(q) ||
           p.summary.toLowerCase().includes(q) ||
+          (p.content && p.content.toLowerCase().includes(q)) ||
           p.categories.some((c) => c.toLowerCase().includes(q))
       );
     }
@@ -229,6 +230,15 @@ export default function App() {
     setPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, isRead: isNowRead } : p))
     );
+  };
+
+  const handleMarkAllAsRead = () => {
+    const currentRead = getReadPostIds();
+    for (const p of posts) {
+      currentRead.add(p.id);
+    }
+    saveReadPostIds(currentRead);
+    setPosts((prev) => prev.map((p) => ({ ...p, isRead: true })));
   };
 
   const handleOpenNotebook = () => {
@@ -334,6 +344,7 @@ export default function App() {
               setActiveFilter({ type: 'quick', id: 'all' });
               setSearchQuery('');
             }}
+            onMarkAllAsRead={handleMarkAllAsRead}
             onOpenNotebook={handleOpenNotebook}
           />
         </main>

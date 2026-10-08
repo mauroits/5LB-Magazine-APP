@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X,
   ExternalLink,
@@ -33,9 +33,88 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Refs for mobile speech stability (prevent GC & buffer timeouts)
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const chunksRef = useRef<string[]>([]);
+  const chunkIndexRef = useRef<number>(0);
+  const isPlayingRef = useRef<boolean>(false);
+
+  // Stop speech synthesis on unmount or when modal closes or post changes
+  useEffect(() => {
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      isPlayingRef.current = false;
+      setIsSpeaking(false);
+    };
+  }, [post]);
+
+  const stopSpeech = useCallback(() => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    isPlayingRef.current = false;
+    setIsSpeaking(false);
+    chunksRef.current = [];
+    chunkIndexRef.current = 0;
+    utteranceRef.current = null;
+  }, []);
+
+  const speakNextChunk = useCallback(() => {
+    if (!isPlayingRef.current || !('speechSynthesis' in window)) return;
+
+    if (chunkIndexRef.current >= chunksRef.current.length) {
+      stopSpeech();
+      return;
+    }
+
+    const chunk = chunksRef.current[chunkIndexRef.current];
+    if (!chunk || !chunk.trim()) {
+      chunkIndexRef.current++;
+      speakNextChunk();
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(chunk.trim());
+    utterance.lang = 'it-IT';
+    utterance.rate = 1.0;
+
+    // Pick Italian voice if available on iOS/Android
+    const voices = window.speechSynthesis.getVoices();
+    const itVoice = voices.find(
+      (v) => v.lang.toLowerCase().startsWith('it') || v.lang.toLowerCase().includes('it')
+    );
+    if (itVoice) {
+      utterance.voice = itVoice;
+    }
+
+    utterance.onend = () => {
+      if (isPlayingRef.current) {
+        chunkIndexRef.current++;
+        speakNextChunk();
+      }
+    };
+
+    utterance.onerror = (e) => {
+      // If user paused/canceled, ignore
+      if (e.error === 'interrupted' || e.error === 'canceled') return;
+      if (isPlayingRef.current) {
+        chunkIndexRef.current++;
+        speakNextChunk();
+      }
+    };
+
+    // Keep reference alive on window to prevent garbage collection on mobile
+    utteranceRef.current = utterance;
+    (window as any).__5lbActiveUtterance = utterance;
+
+    window.speechSynthesis.speak(utterance);
+  }, [stopSpeech]);
+
   if (!post) return null;
 
-  // Web Speech API text-to-speech
+  // Web Speech API text-to-speech with mobile sentence chunking
   const toggleSpeech = () => {
     if (!('speechSynthesis' in window)) {
       alert('La sintesi vocale non è supportata dal tuo browser.');
@@ -43,24 +122,56 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     }
 
     if (isSpeaking) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
+      stopSpeech();
       return;
     }
 
-    window.speechSynthesis.cancel();
+    // Prepare text: strip html, decode entities, split into chunks
+    const rawText = post.title + '. ' + post.content.replace(/<[^>]+>/g, ' ');
+    const cleanText = rawText
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-    // Strip html for clean speech
-    const cleanText = post.title + '. ' + post.content.replace(/<[^>]+>/g, ' ');
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'it-IT';
-    utterance.rate = 1.0;
+    // Split into sentences / manageable chunks of max ~160 chars for mobile stability
+    const sentences = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText];
+    const chunks: string[] = [];
 
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    for (const sentence of sentences) {
+      const trimmed = sentence.trim();
+      if (!trimmed) continue;
+      if (trimmed.length <= 160) {
+        chunks.push(trimmed);
+      } else {
+        // Subdivide long sentences by commas or colons
+        const parts = trimmed.split(/([,;:]\s+)/);
+        let current = '';
+        for (const p of parts) {
+          if ((current + p).length <= 160) {
+            current += p;
+          } else {
+            if (current) chunks.push(current.trim());
+            current = p;
+          }
+        }
+        if (current) chunks.push(current.trim());
+      }
+    }
 
-    window.speechSynthesis.speak(utterance);
+    chunksRef.current = chunks;
+    chunkIndexRef.current = 0;
+    isPlayingRef.current = true;
     setIsSpeaking(true);
+
+    window.speechSynthesis.cancel();
+    // 60ms delay ensures iOS/Android WebKit clears audio pipeline before starting
+    setTimeout(() => {
+      speakNextChunk();
+    }, 60);
   };
 
   const handleShare = async () => {
@@ -93,10 +204,10 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           {/* Left: Close button */}
           <button
             onClick={() => {
-              if (isSpeaking) window.speechSynthesis.cancel();
+              stopSpeech();
               onClose();
             }}
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             title="Chiudi articolo"
           >
             <X className="w-5 h-5" />
@@ -205,8 +316,8 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
           {/* Article HTML Content formatted with custom typography */}
           <div
-            className="prose prose-slate dark:prose-invert max-w-none text-slate-800 dark:text-slate-200 leading-relaxed space-y-4 [&>p]:mb-4 [&>h2]:text-xl [&>h2]:font-bold [&>h2]:mt-6 [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>blockquote]:border-l-4 [&>blockquote]:border-orange-500 [&>blockquote]:pl-4 [&>blockquote]:italic [&>img]:rounded-2xl [&>img]:max-w-full [&>img]:h-auto [&>img]:my-4 [&>a]:text-orange-600 [&>a]:underline"
-            style={{ fontSize: `${fontSize}px` }}
+            className="prose prose-slate dark:prose-invert max-w-none text-slate-800 dark:text-slate-200 leading-relaxed space-y-4 text-justify [text-align:justify] hyphens-auto [&_p]:text-justify [&_p]:[text-align:justify] [&_p]:hyphens-auto [&>p]:mb-4 [&>h2]:text-xl [&>h2]:font-bold [&>h2]:mt-6 [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>blockquote]:border-l-4 [&>blockquote]:border-orange-500 [&>blockquote]:pl-4 [&>blockquote]:italic [&>img]:rounded-2xl [&>img]:max-w-full [&>img]:h-auto [&>img]:my-4 [&>a]:text-orange-600 [&>a]:underline"
+            style={{ fontSize: `${fontSize}px`, textAlign: 'justify', hyphens: 'auto' }}
             dangerouslySetInnerHTML={{ __html: post.content }}
           />
 

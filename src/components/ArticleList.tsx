@@ -12,7 +12,8 @@ import {
   LayoutGrid,
   List,
   Sparkles,
-  X
+  X,
+  CheckCheck
 } from 'lucide-react';
 import { BloggerPost, ActiveFilter } from '../types';
 import { formatItalianDate } from '../services/bloggerFeed';
@@ -28,6 +29,7 @@ interface ArticleListProps {
   onToggleRead: (postId: string, e: React.MouseEvent) => void;
   onResetFilter: () => void;
   onOpenNotebook: () => void;
+  onMarkAllAsRead?: () => void;
 }
 
 export const ArticleList: React.FC<ArticleListProps> = ({
@@ -40,6 +42,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   onToggleRead,
   onResetFilter,
   onOpenNotebook,
+  onMarkAllAsRead,
 }) => {
   const [viewMode, setViewMode] = useState<'card' | 'compact'>('card');
   const [isAiBannerDismissed, setIsAiBannerDismissed] = useState<boolean>(() => {
@@ -100,8 +103,21 @@ export const ArticleList: React.FC<ArticleListProps> = ({
           )}
         </div>
 
-        {/* View toggle */}
-        <div className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-xl">
+        {/* Right side controls: Mark all as read + View toggle */}
+        <div className="flex items-center gap-2">
+          {activeFilter.type === 'quick' && activeFilter.id === 'unread' && posts.length > 0 && onMarkAllAsRead && (
+            <button
+              onClick={onMarkAllAsRead}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition active:scale-95 cursor-pointer"
+              title="Segna tutti gli articoli non letti come già letti"
+            >
+              <CheckCheck className="w-3.5 h-3.5" />
+              <span>Segna tutto come letto</span>
+            </button>
+          )}
+
+          {/* View toggle */}
+          <div className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-xl">
           <button
             onClick={() => setViewMode('card')}
             className={`p-1.5 rounded-lg transition ${
@@ -126,6 +142,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
           </button>
         </div>
       </div>
+    </div>
 
       {/* AI banner highlight (Dismissible) */}
       {!isAiBannerDismissed && (

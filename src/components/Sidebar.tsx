@@ -80,14 +80,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   themeMode,
   onCycleTheme,
 }) => {
-  // Collapsed states for macrosections
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  // Collapsed / Expanded states for macrosections
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   const toggleSection = (sectionId: string) => {
-    setCollapsedSections((prev) => ({
-      ...prev,
-      [sectionId]: !prev[sectionId],
-    }));
+    setExpandedSections((prev) => {
+      const current = prev[sectionId] ?? sections.find((s) => s.id === sectionId)?.defaultOpen ?? false;
+      return {
+        ...prev,
+        [sectionId]: !current,
+      };
+    });
   };
 
   const renderIcon = (iconName: string) => {
@@ -226,8 +229,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Slide-out Sidebar Drawer */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-80 max-w-[85vw] bg-white dark:bg-slate-900 shadow-2xl flex flex-col border-r border-slate-200 dark:border-slate-800 transition-transform duration-300 ease-in-out ${
-          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static lg:z-10 lg:w-72 xl:w-80'
+        className={`fixed top-0 bottom-0 left-0 z-50 w-80 max-w-[85vw] lg:static lg:z-10 lg:w-72 xl:w-80 lg:translate-x-0 bg-white dark:bg-slate-900 shadow-2xl lg:shadow-none flex flex-col border-r border-slate-200 dark:border-slate-800 transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
         {/* Drawer Header (Official 5LB Logo from user image) */}
@@ -240,32 +243,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={onOpenInfo}
                 title="Informazioni sull'App"
-                className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition"
+                className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition cursor-pointer"
               >
                 <Info className="w-5 h-5" />
               </button>
               <button
                 onClick={onClose}
-                className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition lg:hidden"
+                className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition lg:hidden cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {/* Quick AI NotebookLM button in header banner */}
+          {/* Quick Chiedi button in header banner */}
           <button
             onClick={() => {
               onOpenNotebook();
               onClose();
             }}
-            className="mt-4 w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600/90 to-indigo-600/90 hover:from-blue-600 hover:to-indigo-600 text-white shadow-sm transition group"
+            className="mt-4 w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600/90 to-indigo-600/90 hover:from-blue-600 hover:to-indigo-600 text-white shadow-sm transition group cursor-pointer"
           >
             <div className="flex items-center gap-2">
-              <IconNotebookLM className="w-4 h-4 shrink-0" />
+              <Sparkles className="w-4 h-4 text-amber-300 group-hover:rotate-12 transition-transform shrink-0" />
               <span className="text-xs font-semibold tracking-wide">Chiedi a 5LB Magazine</span>
             </div>
-            <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform" />
           </button>
         </div>
 
@@ -332,27 +334,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Macrosections (Accordion collapsible) */}
           {sections.map((section) => {
-            const isCollapsed = !!collapsedSections[section.id];
+            const isSectionOpen = expandedSections[section.id] ?? section.defaultOpen ?? false;
 
             return (
               <div key={section.id} className="py-2">
                 {/* Section Header with toggle */}
                 <button
                   onClick={() => toggleSection(section.id)}
-                  className="w-full flex items-center justify-between px-5 py-2.5 text-left text-xs font-bold tracking-wider text-slate-800 dark:text-slate-200 uppercase hover:bg-slate-50 dark:hover:bg-slate-800/40 transition group"
+                  className="w-full flex items-center justify-between px-5 py-2.5 text-left text-xs font-bold tracking-wider text-slate-800 dark:text-slate-200 uppercase hover:bg-slate-50 dark:hover:bg-slate-800/40 transition group cursor-pointer"
                 >
                   <span className="tracking-widest font-extrabold">{section.title}</span>
                   <span className="p-0.5 rounded text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200">
-                    {isCollapsed ? (
-                      <ChevronRight className="w-4 h-4" />
-                    ) : (
+                    {isSectionOpen ? (
                       <ChevronDown className="w-4 h-4" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4" />
                     )}
                   </span>
                 </button>
 
                 {/* Section Items */}
-                {!isCollapsed && (
+                {isSectionOpen && (
                   <div className="space-y-0.5">
                     {section.items.map((item) => {
                       const active = isItemActive(item);

@@ -33,7 +33,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onToggleSidebar}
             aria-label="Apri menu"
-            className="p-2 rounded-xl text-slate-200 hover:text-white hover:bg-white/10 active:scale-95 transition cursor-pointer shrink-0"
+            className="p-2 rounded-xl text-slate-200 hover:text-white hover:bg-white/10 active:scale-95 transition cursor-pointer shrink-0 lg:hidden"
           >
             <Menu className="w-6 h-6" />
           </button>
@@ -86,9 +86,8 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-xs sm:text-sm shadow-md active:scale-95 transition group cursor-pointer"
             title="Chiedi — Domande e ricerca semantica sulle 5 Leggi Biologiche"
           >
-            <IconNotebookLM className="w-4 h-4 shrink-0" />
+            <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300 group-hover:rotate-12 transition-transform shrink-0" />
             <span className="font-semibold tracking-wide">Chiedi</span>
-            <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform hidden sm:inline" />
           </button>
 
           {/* Notification Bell */}
