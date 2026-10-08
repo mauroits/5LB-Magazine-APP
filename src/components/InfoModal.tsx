@@ -10,7 +10,9 @@ import {
   Layers,
   Sparkles,
   Bell,
-  WifiOff
+  WifiOff,
+  RefreshCw,
+  Check
 } from 'lucide-react';
 import { Logo5LB } from './Logo5LB';
 import { INFO_PAGE_CONTENT } from '../config/infoContent';
@@ -18,10 +20,18 @@ import { INFO_PAGE_CONTENT } from '../config/infoContent';
 interface InfoModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onRefreshFeed?: () => void;
+  isRefreshing?: boolean;
 }
 
-export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
+export const InfoModal: React.FC<InfoModalProps> = ({
+  isOpen,
+  onClose,
+  onRefreshFeed,
+  isRefreshing = false,
+}) => {
   const [activeTab, setActiveTab] = useState<'funzioni' | 'aggiornamenti' | 'contatti' | 'privacy'>('funzioni');
+  const [refreshDone, setRefreshDone] = useState(false);
 
   if (!isOpen) return null;
 
@@ -29,6 +39,14 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
 
   // Icons for feature cards
   const featureIcons = [Layers, Sparkles, Bell, WifiOff];
+
+  const handleManualRefresh = () => {
+    if (onRefreshFeed) {
+      onRefreshFeed();
+      setRefreshDone(true);
+      setTimeout(() => setRefreshDone(false), 3000);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/75 backdrop-blur-xs">
@@ -45,7 +63,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition"
+            className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition cursor-pointer"
             title="Chiudi"
           >
             <X className="w-5 h-5" />
@@ -66,7 +84,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
                   isActive
                     ? 'bg-orange-600 text-white shadow-xs'
                     : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
@@ -99,17 +117,41 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
                   return (
                     <div
                       key={idx}
-                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800"
+                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between"
                     >
-                      <div className="w-8 h-8 rounded-xl bg-orange-100 text-orange-600 dark:bg-orange-950/60 dark:text-orange-400 flex items-center justify-center mb-2.5">
-                        <Icon className="w-4 h-4" />
+                      <div>
+                        <div className="w-8 h-8 rounded-xl bg-orange-100 text-orange-600 dark:bg-orange-950/60 dark:text-orange-400 flex items-center justify-center mb-2.5">
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                          {card.title}
+                        </h4>
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+                          {card.description}
+                        </p>
                       </div>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                        {card.title}
-                      </h4>
-                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
-                        {card.description}
-                      </p>
+
+                      {/* Tasto dedicato nel tab aggregatore di notizie per riavviare il download degli RSS */}
+                      {idx === 0 && onRefreshFeed && (
+                        <div className="mt-4 pt-3 border-t border-slate-200/80 dark:border-slate-700/80">
+                          <button
+                            onClick={handleManualRefresh}
+                            disabled={isRefreshing}
+                            className="w-full inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white text-xs font-semibold shadow-xs transition active:scale-95 cursor-pointer"
+                            title="Riscarica tutti i feed RSS da Blogger e aggiorna la memoria locale"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                            <span>
+                              {isRefreshing
+                                ? 'Download in corso...'
+                                : refreshDone
+                                ? 'Feed aggiornati!'
+                                : 'Riavvia download feed RSS'}
+                            </span>
+                            {refreshDone && <Check className="w-3.5 h-3.5 text-emerald-200" />}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -158,7 +200,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
           {activeTab === 'contatti' && (
             <div className="space-y-4 animate-in fade-in-50">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Mail className="w-5 h-5 text-orange-500" />
+                <Globe className="w-5 h-5 text-orange-500" />
                 {content.contatti.title}
               </h3>
               <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300">
@@ -235,7 +277,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
           <span>5LB Magazine — Tutti i diritti riservati</span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-300 dark:hover:bg-slate-700 transition"
+            className="px-4 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-300 dark:hover:bg-slate-700 transition cursor-pointer"
           >
             Chiudi
           </button>

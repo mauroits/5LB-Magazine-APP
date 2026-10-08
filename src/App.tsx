@@ -364,6 +364,8 @@ export default function App() {
       <InfoModal
         isOpen={isInfoOpen}
         onClose={() => setIsInfoOpen(false)}
+        onRefreshFeed={() => loadFeed(true)}
+        isRefreshing={isRefreshing}
       />
 
       <NotificationCenterModal

@@ -189,7 +189,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       });
       onClose();
     } else if (item.type === 'link') {
-      onSelectLink(item);
+      if (item.targetUrl) {
+        window.open(item.targetUrl, '_blank', 'noopener,noreferrer');
+      }
+      onClose();
     }
   };
 

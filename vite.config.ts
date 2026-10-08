@@ -14,9 +14,9 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
         manifest: {
           id: '/',
-          name: '5LB Magazine - Aggregatore & Framework',
+          name: '5LB Magazine - La rivista sulle 5 Leggi Biologiche',
           short_name: '5LB Mag',
-          description: 'Aggregatore RSS ufficiale per 5LB Magazine (magazine.5lb.eu) con feed, risorse formative e assistente IA.',
+          description: 'App ufficiale di 5LB Magazine con risorse formative e informative.',
           theme_color: '#0e1838',
           background_color: '#0e1838',
           display: 'standalone',

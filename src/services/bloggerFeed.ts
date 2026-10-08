@@ -65,6 +65,54 @@ export function saveFavoritePostIds(ids: Set<string>) {
   }
 }
 
+/**
+ * Fetch feed using Google Blogger's official JSONP protocol (alt=json-in-script).
+ * This completely avoids browser CORS restrictions on static deployments (e.g. app.5lb.eu or GitHub Pages)
+ * because <script> tag requests are cross-origin by design.
+ */
+function fetchBloggerJsonp(maxResults: number, category?: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const cbName = `blogger_cb_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
+    const script = document.createElement('script');
+
+    let fullUrl = category
+      ? `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json-in-script&callback=${cbName}&max-results=${maxResults}`
+      : `https://magazine.5lb.eu/feeds/posts/default?alt=json-in-script&callback=${cbName}&max-results=${maxResults}`;
+
+    script.src = fullUrl;
+    script.async = true;
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timeout durante il download dei feed da Blogger (JSONP)'));
+    }, 15000);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      try {
+        delete (window as any)[cbName];
+      } catch (e) {
+        (window as any)[cbName] = undefined;
+      }
+    };
+
+    (window as any)[cbName] = (data: any) => {
+      cleanup();
+      resolve(data);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('Errore di rete durante il caricamento del feed Blogger'));
+    };
+
+    document.head.appendChild(script);
+  });
+}
+
 export async function fetchBloggerPosts(options?: {
   maxResults?: number;
   category?: string;
@@ -72,8 +120,9 @@ export async function fetchBloggerPosts(options?: {
 }): Promise<BloggerPost[]> {
   const maxResults = options?.maxResults || 80;
   const category = options?.category;
+  const forceRefresh = options?.forceRefresh || false;
 
-  // Check cached data if offline or not forced refresh
+  // Check cached data
   const cachedRaw = localStorage.getItem(FEED_CACHE_KEY);
   let cachedPosts: BloggerPost[] = [];
   if (cachedRaw) {
@@ -89,44 +138,63 @@ export async function fetchBloggerPosts(options?: {
     return applyFilter(cachedPosts, category);
   }
 
-  // Determine endpoints: try backend proxy /api/feed first, fallback to Blogger direct URL
-  const proxyUrl = category
-    ? `/api/feed?max-results=${maxResults}&category=${encodeURIComponent(category)}`
-    : `/api/feed?max-results=${maxResults}`;
-
-  const directBloggerUrl = category
-    ? `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json&max-results=${maxResults}`
-    : `https://magazine.5lb.eu/feeds/posts/default?alt=json&max-results=${maxResults}`;
+  // If forceRefresh is requested, clear memory cache entry to force download
+  if (forceRefresh) {
+    try {
+      localStorage.removeItem(FEED_CACHE_KEY);
+    } catch (e) {
+      // ignore
+    }
+  }
 
   let jsonResult: any = null;
 
+  // Method 1: Try local backend proxy /api/feed (fast when running on full-stack server)
   try {
-    // Attempt 1: proxy endpoint
+    const proxyUrl = category
+      ? `/api/feed?max-results=${maxResults}&category=${encodeURIComponent(category)}`
+      : `/api/feed?max-results=${maxResults}`;
+
     const res = await fetch(proxyUrl, { headers: { Accept: 'application/json' } });
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
       jsonResult = await res.json();
     }
   } catch (e) {
-    // Proxy not reachable (e.g. static host on GitHub Pages)
+    // Proxy not available (static hosting like app.5lb.eu or GitHub Pages)
   }
 
-  if (!jsonResult) {
+  // Method 2: If proxy not available or failed, use native Blogger JSONP (100% CORS-free client side)
+  if (!jsonResult || !jsonResult.feed) {
     try {
-      // Attempt 2: direct Blogger feed with alt=json
+      jsonResult = await fetchBloggerJsonp(maxResults, category);
+    } catch (errJsonp) {
+      console.warn('Blogger JSONP fetch failed, trying direct fetch:', errJsonp);
+    }
+  }
+
+  // Method 3: Fallback to direct fetch
+  if (!jsonResult || !jsonResult.feed) {
+    try {
+      const directBloggerUrl = category
+        ? `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json&max-results=${maxResults}`
+        : `https://magazine.5lb.eu/feeds/posts/default?alt=json&max-results=${maxResults}`;
+
       const res = await fetch(directBloggerUrl);
       if (res.ok) {
         jsonResult = await res.json();
       }
-    } catch (err) {
-      console.warn('Direct Blogger fetch failed, trying cached data:', err);
+    } catch (errDirect) {
+      console.warn('Direct Blogger fetch failed:', errDirect);
     }
   }
 
+  // If network failed but we have cache, fallback gracefully
   if (!jsonResult || !jsonResult.feed || !Array.isArray(jsonResult.feed.entry)) {
     if (cachedPosts.length > 0) {
       return applyFilter(cachedPosts, category);
     }
-    throw new Error('Impossibile caricare i post del magazine al momento.');
+    throw new Error('Impossibile scaricare i post del magazine. Verifica la connessione internet.');
   }
 
   const readIds = getReadPostIds();
