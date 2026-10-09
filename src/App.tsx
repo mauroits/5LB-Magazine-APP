@@ -20,6 +20,7 @@ import {
   NavItem,
   NotificationItem
 } from './types';
+import { postMatchesExactPhrase } from './utils/searchUtils';
 import {
   fetchBloggerPosts,
   getCachedPosts,
@@ -36,6 +37,7 @@ import {
   markNotificationAsRead
 } from './services/notificationService';
 import { NAV_SECTIONS, GOOGLE_NOTEBOOK_URL } from './config/navigation';
+import { openNotebookWithPriority } from './utils/notebookLauncher';
 import { useTheme } from './hooks/useTheme';
 import { Bell, ArrowRight, X } from 'lucide-react';
 
@@ -337,90 +339,64 @@ export default function App() {
 
   // Active view posts & pagination state
   const { currentViewPosts, currentViewHasMore, isCurrentViewLoading, isCurrentViewLoadingMore } = useMemo(() => {
-    // Search query filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const onlinePosts = onlineSearchResults[q] || [];
-      const onlineIdSet = new Set(onlinePosts.map((p) => p.id));
-
-      const localMatches = posts.filter(
-        (p) =>
-          onlineIdSet.has(p.id) ||
-          p.title.toLowerCase().includes(q) ||
-          p.summary.toLowerCase().includes(q) ||
-          (p.content && p.content.toLowerCase().includes(q)) ||
-          p.categories.some((c) => c.toLowerCase().includes(q))
-      );
-
-      const allFound = [...onlinePosts, ...localMatches.filter((p) => !onlineIdSet.has(p.id))];
-
-      return {
-        currentViewPosts: allFound,
-        currentViewHasMore: false,
-        isCurrentViewLoading: false,
-        isCurrentViewLoadingMore: false,
-      };
-    }
+    let basePosts: BloggerPost[] = [];
+    let baseHasMore = false;
+    let baseIsLoading = false;
+    let baseIsLoadingMore = false;
 
     // Active category RSS filter
     if (activeFilter.type === 'rss') {
       const catKey = activeFilter.category.trim();
       const feed = categoryFeeds[catKey];
+      basePosts = feed ? feed.posts : [];
+      baseHasMore = feed ? feed.hasMore : false;
+      baseIsLoading = !feed && isCategoryLoading;
+      baseIsLoadingMore = isCategoryLoadingMore;
+    } else if (activeFilter.type === 'quick') {
+      // Active quick filters
+      if (activeFilter.id === 'all') {
+        const q = searchQuery.toLowerCase().trim();
+        const onlinePosts = q ? (onlineSearchResults[q] || []) : [];
+        const onlineIdSet = new Set(onlinePosts.map((p) => p.id));
+        basePosts = [...onlinePosts, ...posts.filter((p) => !onlineIdSet.has(p.id))];
+        baseHasMore = mainFeedHasMore;
+        baseIsLoading = isLoading;
+        baseIsLoadingMore = isMainFeedLoadingMore;
+      } else if (activeFilter.id === 'unread') {
+        basePosts = posts.filter((p) => !p.isRead);
+      } else if (activeFilter.id === 'favorites') {
+        basePosts = posts.filter((p) => p.isFavorite);
+      } else if (activeFilter.id === 'today') {
+        const now = new Date();
+        const oneDayAgo = now.getTime() - 24 * 60 * 60 * 1000;
+        basePosts = posts.filter((p) => new Date(p.published).getTime() > oneDayAgo);
+      }
+    } else {
+      basePosts = posts;
+    }
+
+    // Search query filter (applies within current view/category with exact word/phrase matching)
+    if (searchQuery.trim()) {
+      const filtered = basePosts.filter((p) => postMatchesExactPhrase(p, searchQuery));
+
       return {
-        currentViewPosts: feed ? feed.posts : [],
-        currentViewHasMore: feed ? feed.hasMore : false,
-        isCurrentViewLoading: !feed && isCategoryLoading,
-        isCurrentViewLoadingMore: isCategoryLoadingMore,
+        currentViewPosts: filtered,
+        currentViewHasMore: false,
+        isCurrentViewLoading: baseIsLoading,
+        isCurrentViewLoadingMore: false,
       };
     }
 
-    // Active quick filters
-    if (activeFilter.type === 'quick') {
-      if (activeFilter.id === 'all') {
-        return {
-          currentViewPosts: posts,
-          currentViewHasMore: mainFeedHasMore,
-          isCurrentViewLoading: isLoading,
-          isCurrentViewLoadingMore: isMainFeedLoadingMore,
-        };
-      }
-      if (activeFilter.id === 'unread') {
-        return {
-          currentViewPosts: posts.filter((p) => !p.isRead),
-          currentViewHasMore: false,
-          isCurrentViewLoading: false,
-          isCurrentViewLoadingMore: false,
-        };
-      }
-      if (activeFilter.id === 'favorites') {
-        return {
-          currentViewPosts: posts.filter((p) => p.isFavorite),
-          currentViewHasMore: false,
-          isCurrentViewLoading: false,
-          isCurrentViewLoadingMore: false,
-        };
-      }
-      if (activeFilter.id === 'today') {
-        const now = new Date();
-        const oneDayAgo = now.getTime() - 24 * 60 * 60 * 1000;
-        return {
-          currentViewPosts: posts.filter((p) => new Date(p.published).getTime() > oneDayAgo),
-          currentViewHasMore: false,
-          isCurrentViewLoading: false,
-          isCurrentViewLoadingMore: false,
-        };
-      }
-    }
-
     return {
-      currentViewPosts: posts,
-      currentViewHasMore: false,
-      isCurrentViewLoading: false,
-      isCurrentViewLoadingMore: false,
+      currentViewPosts: basePosts,
+      currentViewHasMore: baseHasMore,
+      isCurrentViewLoading: baseIsLoading,
+      isCurrentViewLoadingMore: baseIsLoadingMore,
     };
   }, [
     posts,
     searchQuery,
+    onlineSearchResults,
     activeFilter,
     categoryFeeds,
     isCategoryLoading,
@@ -540,7 +516,7 @@ export default function App() {
   };
 
   const handleOpenNotebook = () => {
-    setIsNotebookOpen(true);
+    openNotebookWithPriority();
   };
 
   const handleOpenTelegram = () => {
@@ -587,55 +563,41 @@ export default function App() {
         setToastNotification({
           id: 'search-success-' + Date.now(),
           title: 'Articoli importati dall’archivio',
-          body: `Trovati ${res.posts.length} articoli per "${trimmed}" e aggiunti all'elenco.`,
+          body: `Trovati e importati ${res.posts.length} articoli per "${trimmed}".`,
           date: new Date().toISOString(),
           read: false,
         });
       } else {
-        // No RSS articles matched, fallback to opening search in webview modal
-        setSelectedExternalLink({
-          id: 'search-online',
-          label: `Archivio web: "${trimmed}"`,
-          iconName: 'Globe',
-          targetUrl: `https://magazine.5lb.eu/search?q=${encodeURIComponent(trimmed)}`,
-          type: 'link',
-          description: `Ricerca web di "${trimmed}" su magazine.5lb.eu`,
-        });
-
+        // Nessun articolo trovato online: mostra fumetto e torna in home
         setToastNotification({
-          id: 'search-fallback-' + Date.now(),
-          title: 'Apertura archivio web',
-          body: `Nessun feed RSS trovato per "${trimmed}". Apertura dell'archivio in webview...`,
+          id: 'search-empty-' + Date.now(),
+          title: 'Nessun risultato online',
+          body: `Nessun articolo trovato nell'archivio online per "${trimmed}".`,
           date: new Date().toISOString(),
           read: false,
         });
+
+        // Torna in home
+        setSearchQuery('');
+        setActiveFilter({ type: 'quick', id: 'all' });
       }
     } catch (err) {
       console.warn('Errore durante la ricerca online:', err);
-      // Fallback directly to webview modal
-      setSelectedExternalLink({
-        id: 'search-online',
-        label: `Archivio web: "${trimmed}"`,
-        iconName: 'Globe',
-        targetUrl: `https://magazine.5lb.eu/search?q=${encodeURIComponent(trimmed)}`,
-        type: 'link',
-        description: `Ricerca web di "${trimmed}" su magazine.5lb.eu`,
+      setToastNotification({
+        id: 'search-error-' + Date.now(),
+        title: 'Ricerca online non riuscita',
+        body: `Impossibile completare la ricerca per "${trimmed}". Riprova più tardi.`,
+        date: new Date().toISOString(),
+        read: false,
       });
+
+      // Torna in home
+      setSearchQuery('');
+      setActiveFilter({ type: 'quick', id: 'all' });
     } finally {
       setIsSearchingOnline(false);
     }
   }, [isSearchingOnline]);
-
-  const handleOpenWebviewSearch = useCallback((query: string) => {
-    setSelectedExternalLink({
-      id: 'search-online',
-      label: `Archivio web: "${query}"`,
-      iconName: 'Globe',
-      targetUrl: `https://magazine.5lb.eu/search?q=${encodeURIComponent(query)}`,
-      type: 'link',
-      description: 'Risultati di ricerca sul sito web magazine.5lb.eu',
-    });
-  }, []);
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col font-sans">
@@ -692,7 +654,9 @@ export default function App() {
             searchQuery={searchQuery}
             isSearchingOnline={isSearchingOnline}
             onSearchOnline={handleSearchOnline}
-            onOpenWebviewSearch={handleOpenWebviewSearch}
+            onSearchAllArticles={() => {
+              setActiveFilter({ type: 'quick', id: 'all' });
+            }}
             onSelectPost={handleSelectPost}
             onToggleFavorite={handleToggleFavorite}
             onToggleRead={handleToggleRead}
@@ -754,6 +718,7 @@ export default function App() {
         onClose={() => setSelectedPost(null)}
         onToggleFavorite={handleToggleFavorite}
         isFavorite={selectedPost ? selectedPost.isFavorite || false : false}
+        initialSearchQuery={searchQuery}
       />
 
       <InfoModal

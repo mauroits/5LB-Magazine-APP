@@ -73,7 +73,12 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {/* Mobile search toggle */}
           <button
-            onClick={() => setShowSearchInput(!showSearchInput)}
+            onClick={() => {
+              if (showSearchInput && searchQuery) {
+                onSearchChange('');
+              }
+              setShowSearchInput(!showSearchInput);
+            }}
             className="p-2 rounded-xl text-slate-200 hover:text-white hover:bg-white/10 active:scale-95 transition md:hidden cursor-pointer"
             title="Cerca"
           >

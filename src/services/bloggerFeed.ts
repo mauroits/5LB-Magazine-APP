@@ -1,4 +1,5 @@
 import { BloggerPost } from '../types';
+import { postMatchesExactPhrase } from '../utils/searchUtils';
 import { PUBLICATION_DELAY_HOURS } from '../config/navigation';
 
 const FEED_CACHE_KEY = '5lb_magazine_posts_cache_v1';
@@ -190,13 +191,7 @@ export async function fetchBloggerPosts(options?: {
   if (!navigator.onLine && cachedPosts.length > 0) {
     let filtered = applyFilter(cachedPosts, category);
     if (q) {
-      const qLow = q.toLowerCase();
-      filtered = filtered.filter(
-        (p) =>
-          p.title.toLowerCase().includes(qLow) ||
-          p.summary.toLowerCase().includes(qLow) ||
-          p.categories.some((c) => c.toLowerCase().includes(qLow))
-      );
+      filtered = filtered.filter((p) => postMatchesExactPhrase(p, q));
     }
     return {
       posts: filtered.slice(startIndex - 1, startIndex - 1 + maxResults),
@@ -266,9 +261,12 @@ export async function fetchBloggerPosts(options?: {
   }
 
   // If network failed but we have cache, fallback gracefully
-  if (!jsonResult || !jsonResult.feed || !Array.isArray(jsonResult.feed.entry)) {
+  if (!jsonResult || !jsonResult.feed) {
     if (cachedPosts.length > 0) {
-      const filtered = applyFilter(cachedPosts, category);
+      let filtered = applyFilter(cachedPosts, category);
+      if (q) {
+        filtered = filtered.filter((p) => postMatchesExactPhrase(p, q));
+      }
       return {
         posts: filtered.slice(startIndex - 1, startIndex - 1 + maxResults),
         totalResults: filtered.length,
@@ -279,12 +277,11 @@ export async function fetchBloggerPosts(options?: {
   }
 
   const rawTotal = jsonResult.feed?.openSearch$totalResults?.$t;
-  const totalResults = rawTotal ? parseInt(rawTotal, 10) : 0;
+  const entries: any[] = Array.isArray(jsonResult.feed?.entry) ? jsonResult.feed.entry : [];
+  const totalResults = rawTotal ? parseInt(rawTotal, 10) : entries.length;
 
   const readIds = getReadPostIds();
   const favIds = getFavoritePostIds();
-
-  const entries: any[] = jsonResult.feed.entry;
 
   // Filter entries based on PUBLICATION_DELAY_HOURS to give author time to finalize URLs
   const now = Date.now();

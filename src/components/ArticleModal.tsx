@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   X,
   ExternalLink,
@@ -11,16 +11,21 @@ import {
   Calendar,
   User,
   Tag,
-  Check
+  Check,
+  Search,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { BloggerPost } from '../types';
 import { formatItalianDate } from '../services/bloggerFeed';
+import { highlightHtmlContent } from '../utils/searchUtils';
 
 interface ArticleModalProps {
   post: BloggerPost | null;
   onClose: () => void;
   onToggleFavorite: (postId: string) => void;
   isFavorite: boolean;
+  initialSearchQuery?: string;
 }
 
 export const ArticleModal: React.FC<ArticleModalProps> = ({
@@ -28,10 +33,36 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   onClose,
   onToggleFavorite,
   isFavorite,
+  initialSearchQuery = '',
 }) => {
   const [fontSize, setFontSize] = useState<number>(17); // base px
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // In-article word search state
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(Boolean(initialSearchQuery.trim()));
+  const [searchWord, setSearchWord] = useState<string>(initialSearchQuery.trim());
+  const [activeIndex, setActiveIndex] = useState<number>(0);
+  const [isExactWord, setIsExactWord] = useState<boolean>(true);
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Sync search query when post changes or initial query arrives:
+  // Se la ricerca è vuota (ricerca resettata, uscita dalla ricerca, cambio categoria o home),
+  // dimentica e azzera completamente qualsiasi parola cercata in precedenza.
+  useEffect(() => {
+    const trimmed = initialSearchQuery.trim();
+    if (trimmed) {
+      setSearchWord(trimmed);
+      setIsSearchOpen(true);
+      setActiveIndex(0);
+    } else {
+      setSearchWord('');
+      setIsSearchOpen(false);
+      setActiveIndex(0);
+    }
+  }, [post?.id, initialSearchQuery]);
 
   // Refs for mobile speech stability (prevent GC & buffer timeouts)
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -111,6 +142,51 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
     window.speechSynthesis.speak(utterance);
   }, [stopSpeech]);
+
+  // Highlighted HTML content & match count computation
+  const { highlightedHtml, totalMatches } = useMemo(() => {
+    if (!post?.content) return { highlightedHtml: '', totalMatches: 0 };
+    if (!isSearchOpen || !searchWord.trim()) {
+      return { highlightedHtml: post.content, totalMatches: 0 };
+    }
+    return highlightHtmlContent(post.content, searchWord, activeIndex, isExactWord);
+  }, [post?.content, isSearchOpen, searchWord, activeIndex, isExactWord]);
+
+  // Jump to next match
+  const handleNextMatch = useCallback(() => {
+    if (totalMatches <= 0) return;
+    setActiveIndex((prev) => (prev + 1) % totalMatches);
+  }, [totalMatches]);
+
+  // Jump to previous match
+  const handlePrevMatch = useCallback(() => {
+    if (totalMatches <= 0) return;
+    setActiveIndex((prev) => (prev - 1 + totalMatches) % totalMatches);
+  }, [totalMatches]);
+
+  // Toggle in-article search bar
+  const handleToggleSearch = useCallback(() => {
+    setIsSearchOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => searchInputRef.current?.focus(), 60);
+      }
+      return next;
+    });
+  }, []);
+
+  // Smooth scroll to active highlighted match
+  useEffect(() => {
+    if (isSearchOpen && totalMatches > 0) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`article-match-${activeIndex}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [activeIndex, isSearchOpen, totalMatches, searchWord]);
 
   if (!post) return null;
 
@@ -205,6 +281,9 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           <button
             onClick={() => {
               stopSpeech();
+              setSearchWord('');
+              setIsSearchOpen(false);
+              setActiveIndex(0);
               onClose();
             }}
             className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
@@ -234,8 +313,22 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
             </button>
           </div>
 
-          {/* Right actions: TTS, Favorite, Share, External Link */}
+          {/* Right actions: Cerca parola, TTS, Favorite, Share, External Link */}
           <div className="flex items-center gap-1">
+            {/* Pulsante Cerca parola nel testo */}
+            <button
+              onClick={handleToggleSearch}
+              className={`p-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
+                isSearchOpen
+                  ? 'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400 font-semibold ring-1 ring-orange-500/40'
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+              title="Cerca parola nel testo"
+            >
+              <Search className="w-4 h-4" />
+              <span className="hidden sm:inline text-xs">Cerca parola</span>
+            </button>
+
             <button
               onClick={toggleSpeech}
               className={`p-2 rounded-xl transition ${
@@ -280,8 +373,118 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           </div>
         </div>
 
+        {/* Sticky In-Article Search Bar with Jump Arrows & Counter */}
+        {isSearchOpen && (
+          <div className="sticky top-[53px] z-20 bg-orange-50/95 dark:bg-slate-800/95 border-b border-orange-200 dark:border-slate-700 px-3 sm:px-5 py-2.5 flex flex-wrap items-center gap-2 text-xs backdrop-blur-md shadow-xs animate-in slide-in-from-top-2">
+            <div className="relative flex-1 min-w-[170px]">
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchWord}
+                onChange={(e) => {
+                  setSearchWord(e.target.value);
+                  setActiveIndex(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (e.shiftKey) handlePrevMatch();
+                    else handleNextMatch();
+                  } else if (e.key === 'Escape') {
+                    setIsSearchOpen(false);
+                    setSearchWord('');
+                    setActiveIndex(0);
+                  }
+                }}
+                placeholder="Cerca parola nell'articolo..."
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              {searchWord && (
+                <button
+                  onClick={() => {
+                    setSearchWord('');
+                    setActiveIndex(0);
+                    searchInputRef.current?.focus();
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  title="Cancella testo"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Counter Badge */}
+            {searchWord.trim() && (
+              <div className="shrink-0 text-[11px] font-medium">
+                {totalMatches > 0 ? (
+                  <span className="bg-orange-200/80 dark:bg-orange-950/80 text-orange-950 dark:text-orange-200 px-2 py-1 rounded-lg font-bold">
+                    {activeIndex + 1} di {totalMatches}
+                  </span>
+                ) : (
+                  <span className="text-rose-500 bg-rose-50 dark:bg-rose-950/40 px-2 py-1 rounded-lg border border-rose-200 dark:border-rose-900/40">
+                    Nessun risultato
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Freccia successiva e precedente per saltare nel testo */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={handlePrevMatch}
+                disabled={totalMatches <= 1}
+                className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-orange-100 dark:hover:bg-slate-700 disabled:opacity-35 disabled:cursor-not-allowed transition cursor-pointer"
+                title="Parola precedente (Shift+Invio)"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                onClick={handleNextMatch}
+                disabled={totalMatches <= 1}
+                className="px-2.5 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-35 disabled:cursor-not-allowed transition shadow-xs flex items-center gap-1 text-[11px] font-semibold cursor-pointer active:scale-95"
+                title="Salta alla parola successiva (Invio)"
+              >
+                <span>Successiva</span>
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Exact Word Toggle */}
+            <button
+              onClick={() => {
+                setIsExactWord((v) => !v);
+                setActiveIndex(0);
+              }}
+              className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition border cursor-pointer shrink-0 ${
+                isExactWord
+                  ? 'bg-orange-100 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-800'
+                  : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-700'
+              }`}
+              title={isExactWord ? 'Ricerca parola esatta attiva' : 'Ricerca parziale attiva'}
+            >
+              {isExactWord ? 'Esatta' : 'Parziale'}
+            </button>
+
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setIsSearchOpen(false);
+                setSearchWord('');
+                setActiveIndex(0);
+              }}
+              className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-orange-100 dark:hover:bg-slate-700 rounded-lg shrink-0 cursor-pointer"
+              title="Chiudi barra di ricerca"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Scrollable Article Body */}
-        <div className="flex-1 overflow-y-auto px-5 sm:px-10 py-6">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 sm:px-10 py-6">
           {/* Categories row */}
           <div className="flex flex-wrap gap-1.5 mb-3">
             {post.categories.map((c, i) => (
@@ -318,7 +521,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           <div
             className="prose prose-slate dark:prose-invert max-w-none text-slate-800 dark:text-slate-200 leading-relaxed space-y-4 text-justify [text-align:justify] hyphens-auto [&_p]:text-justify [&_p]:[text-align:justify] [&_p]:hyphens-auto [&>p]:mb-4 [&>h2]:text-xl [&>h2]:font-bold [&>h2]:mt-6 [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>blockquote]:border-l-4 [&>blockquote]:border-orange-500 [&>blockquote]:pl-4 [&>blockquote]:italic [&>img]:rounded-2xl [&>img]:max-w-full [&>img]:h-auto [&>img]:my-4 [&>a]:text-orange-600 [&>a]:underline"
             style={{ fontSize: `${fontSize}px`, textAlign: 'justify', hyphens: 'auto' }}
-            dangerouslySetInnerHTML={{ __html: post.content }}
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
           />
 
           {/* Original Source Link Banner */}

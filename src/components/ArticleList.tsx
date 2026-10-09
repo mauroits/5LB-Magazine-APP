@@ -34,7 +34,7 @@ interface ArticleListProps {
   searchQuery?: string;
   isSearchingOnline?: boolean;
   onSearchOnline?: (q: string) => void;
-  onOpenWebviewSearch?: (q: string) => void;
+  onSearchAllArticles?: () => void;
   onSelectPost: (post: BloggerPost) => void;
   onToggleFavorite: (postId: string, e: React.MouseEvent) => void;
   onToggleRead: (postId: string, e: React.MouseEvent) => void;
@@ -54,7 +54,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   searchQuery = '',
   isSearchingOnline = false,
   onSearchOnline,
-  onOpenWebviewSearch,
+  onSearchAllArticles,
   onSelectPost,
   onToggleFavorite,
   onToggleRead,
@@ -159,6 +159,20 @@ export const ArticleList: React.FC<ArticleListProps> = ({
               Mostra tutte
             </button>
           )}
+
+          {searchQuery?.trim() && (
+            <div className="flex items-center gap-1.5 ml-1.5 px-2.5 py-1 rounded-full bg-orange-100 dark:bg-orange-950/80 text-orange-800 dark:text-orange-200 text-xs font-medium border border-orange-200 dark:border-orange-800">
+              <Search className="w-3 h-3 text-orange-600 dark:text-orange-400 shrink-0" />
+              <span className="max-w-[120px] sm:max-w-[200px] truncate">"{searchQuery.trim()}"</span>
+              <button
+                onClick={onResetFilter}
+                className="ml-0.5 p-0.5 hover:bg-orange-200 dark:hover:bg-orange-900 rounded-full transition cursor-pointer"
+                title="Cancella ricerca"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Right side controls: Shuffle + Mark all as read + View toggle */}
@@ -258,61 +272,70 @@ export const ArticleList: React.FC<ArticleListProps> = ({
       )}
 
       {/* Empty State */}
-      {displayedPosts.length === 0 && !isLoading && (
-        <div className="text-center py-14 px-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <BookOpen className="w-12 h-12 mx-auto text-slate-400 mb-3" />
-          <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-            {searchQuery?.trim()
-              ? `Nessun articolo trovato per "${searchQuery}"`
-              : 'Nessun articolo trovato in questa sezione'}
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
-            {searchQuery?.trim()
-              ? 'Non abbiamo trovato riscontri tra gli articoli attualmente memorizzati. Puoi estendere la ricerca all’intero archivio online di 5LB Magazine.'
-              : 'Non ci sono articoli per i filtri attuali. Puoi aggiornare i feed o tornare alla sezione Ultime.'}
-          </p>
+      {displayedPosts.length === 0 && !isLoading && (() => {
+        const isSubcategory =
+          activeFilter.type === 'rss' ||
+          (activeFilter.type === 'quick' && activeFilter.id !== 'all');
 
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
-            {searchQuery?.trim() && onSearchOnline && (
+        return (
+          <div className="text-center py-14 px-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <BookOpen className="w-12 h-12 mx-auto text-slate-400 mb-3" />
+            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+              {searchQuery?.trim()
+                ? isSubcategory
+                  ? `Nessun articolo trovato in ${filterTitle} per "${searchQuery}"`
+                  : `Nessun articolo trovato per "${searchQuery}"`
+                : 'Nessun articolo trovato in questa sezione'}
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
+              {searchQuery?.trim()
+                ? isSubcategory
+                  ? `Non ci sono corrispondenze in questa sottocategoria. Puoi cercare in tutti gli articoli (sezione Ultime Pubblicazioni) oppure tornare alla home.`
+                  : 'Nessun riscontro tra gli articoli attualmente memorizzati. Puoi cercare nell\'archivio online di 5LB Magazine su Blogger per importarli.'
+                : 'Non ci sono articoli per i filtri attuali. Puoi aggiornare i feed o tornare alla home.'}
+            </p>
+
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
+              {searchQuery?.trim() && isSubcategory && onSearchAllArticles && (
+                <button
+                  onClick={onSearchAllArticles}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition shadow-sm flex items-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Cerca in tutti gli articoli</span>
+                </button>
+              )}
+
+              {searchQuery?.trim() && !isSubcategory && onSearchOnline && (
+                <button
+                  onClick={() => onSearchOnline(searchQuery)}
+                  disabled={isSearchingOnline}
+                  className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-60 active:scale-95"
+                >
+                  {isSearchingOnline ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Ricerca nell'archivio online...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Cerca nell'archivio online</span>
+                    </>
+                  )}
+                </button>
+              )}
+
               <button
-                onClick={() => onSearchOnline(searchQuery)}
-                disabled={isSearchingOnline}
-                className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-60"
+                onClick={onResetFilter}
+                className="px-4 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium text-xs transition cursor-pointer"
               >
-                {isSearchingOnline ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Ricerca nell'archivio online...</span>
-                  </>
-                ) : (
-                  <>
-                    <Globe className="w-3.5 h-3.5" />
-                    <span>Ricerca nell'archivio online</span>
-                  </>
-                )}
+                Torna in home
               </button>
-            )}
-
-            {searchQuery?.trim() && onOpenWebviewSearch && (
-              <button
-                onClick={() => onOpenWebviewSearch(searchQuery)}
-                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition shadow-sm flex items-center gap-2 cursor-pointer"
-                title="Apri la ricerca direttamente nel sito web magazine.5lb.eu"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Apri archivio in webview</span>
-              </button>
-            )}
-
-            <button
-              onClick={onResetFilter}
-              className="px-4 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium text-xs transition cursor-pointer"
-            >
-              Torna a tutti gli articoli
-            </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Grid or Compact List View */}
       {viewMode === 'card' ? (

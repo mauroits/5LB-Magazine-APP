@@ -2,18 +2,19 @@ import React, { useState } from 'react';
 import {
   X,
   ExternalLink,
-  Maximize2,
-  Minimize2,
   Sparkles,
-  Info,
   ShieldCheck,
-  RefreshCw,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw
+  Copy,
+  Check,
+  HelpCircle,
+  Smartphone,
+  Globe,
+  Bot,
+  ArrowRight
 } from 'lucide-react';
 import { IconNotebookLM } from './CustomIcons';
 import { GOOGLE_NOTEBOOK_URL } from '../config/navigation';
+import { openNotebookWithPriority } from '../utils/notebookLauncher';
 
 interface NotebookModalProps {
   isOpen: boolean;
@@ -21,255 +22,161 @@ interface NotebookModalProps {
 }
 
 export const NotebookModal: React.FC<NotebookModalProps> = ({ isOpen, onClose }) => {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [iframeKey, setIframeKey] = useState(0);
-
-  // Initialize zoom level from localStorage or sensible responsive default (65% on mobile, 75% on desktop)
-  const [zoomLevel, setZoomLevel] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('5lb_notebook_zoom');
-      if (saved) {
-        const val = parseFloat(saved);
-        if (!isNaN(val) && val >= 0.4 && val <= 1.5) return val;
-      }
-    } catch (e) {
-      // ignore
-    }
-    if (typeof window !== 'undefined' && window.innerWidth < 640) {
-      return 0.65; // Mobile-friendly default to prevent oversized view
-    }
-    return 0.75;
-  });
-
-  const notebookUrl = GOOGLE_NOTEBOOK_URL;
+  const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  const updateZoom = (newVal: number) => {
-    const clamped = Math.max(0.4, Math.min(1.4, Math.round(newVal * 100) / 100));
-    setZoomLevel(clamped);
-    try {
-      localStorage.setItem('5lb_notebook_zoom', clamped.toString());
-    } catch (e) {
-      // ignore
+  const handleLaunch = () => {
+    openNotebookWithPriority();
+  };
+
+  const handleCopyLink = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(GOOGLE_NOTEBOOK_URL);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  const handleZoomIn = () => {
-    updateZoom(zoomLevel + 0.05);
-  };
-
-  const handleZoomOut = () => {
-    updateZoom(zoomLevel - 0.05);
-  };
-
-  const handleResetZoom = () => {
-    const def = typeof window !== 'undefined' && window.innerWidth < 640 ? 0.65 : 0.75;
-    updateZoom(def);
-  };
+  const suggestedQuestions = [
+    'Qual è il senso biologico del relè della laringe nelle 5LB?',
+    'Spiegami la differenza tra fase simpaticotonica e vagotonica.',
+    'Quali foglietti embrionali governano i bronchi e gli alveoli?',
+    'Cosa accade durante la crisi epilettoide nei conflitti biologici?',
+  ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-3 md:p-6 bg-black/75 backdrop-blur-sm">
-      <div
-        className={`relative w-full bg-white dark:bg-slate-900 shadow-2xl flex flex-col overflow-hidden transition-all duration-300 ${
-          isFullscreen
-            ? 'h-full w-full rounded-none'
-            : 'h-full sm:h-[94vh] sm:max-w-6xl sm:rounded-3xl border border-slate-200 dark:border-slate-800'
-        }`}
-      >
-        {/* Modal Header */}
-        <div className="bg-[#0e1838] px-4 py-3 text-white flex items-center justify-between gap-2 shadow-md shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <IconNotebookLM className="w-6 h-6 shrink-0" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/75 backdrop-blur-xs animate-in fade-in">
+      <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95">
+        {/* Header */}
+        <div className="bg-[#0e1838] px-5 py-4 text-white flex items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shrink-0">
+              <IconNotebookLM className="w-6 h-6" />
+            </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-bold truncate">
-                  Ricerca semantica con Gemini
+                <h2 className="text-base sm:text-lg font-bold truncate">
+                  Google NotebookLM
                 </h2>
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30">
-                  <ShieldCheck className="w-3 h-3" /> Accesso Google
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                  <ShieldCheck className="w-3 h-3" /> 5LB Magazine
                 </span>
               </div>
-              <p className="text-[11px] text-slate-300 truncate">
-                Assistente IA addestrato su 5LB Magazine
+              <p className="text-xs text-slate-300 truncate">
+                Assistente IA & Ricerca semantica sulle 5 Leggi Biologiche
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            {/* Interactive User Zoom Controls */}
-            <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-800/90 border border-slate-700/80 rounded-xl px-1.5 sm:px-2 py-1 text-xs shadow-xs">
-              <button
-                onClick={handleZoomOut}
-                className="p-1 text-slate-300 hover:text-white rounded hover:bg-white/10 transition cursor-pointer"
-                title="Riduci zoom vista"
-              >
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={handleResetZoom}
-                className="px-1 sm:px-1.5 font-mono text-[11px] font-bold text-orange-400 hover:text-orange-300 transition cursor-pointer"
-                title="Ripristina zoom ottimale (80%)"
-              >
-                {Math.round(zoomLevel * 100)}%
-              </button>
-              <button
-                onClick={handleZoomIn}
-                className="p-1 text-slate-300 hover:text-white rounded hover:bg-white/10 transition cursor-pointer"
-                title="Aumenta zoom vista"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-300 hover:text-white rounded-xl hover:bg-white/10 transition cursor-pointer"
+            title="Chiudi finestra"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-5 sm:p-7 overflow-y-auto max-h-[80vh] flex flex-col gap-5">
+          {/* Hero Feature Box */}
+          <div className="rounded-2xl bg-gradient-to-br from-blue-50 via-indigo-50/50 to-orange-50/30 dark:from-slate-800/80 dark:via-slate-800/50 dark:to-slate-800/20 p-5 border border-blue-200/60 dark:border-slate-700">
+            <div className="flex items-start gap-3.5">
+              <div className="p-2.5 rounded-xl bg-blue-600 text-white shrink-0 mt-0.5 shadow-md">
+                <Bot className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
+                  Quaderno ufficiale 5LB Magazine con Gemini
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed">
+                  Interroga l’intero archivio di 5LB Magazine: eziologia, sintomi, foglietti embrionali e verifiche biologiche con risposte immediate e citazioni dirette alle fonti originali.
+                </p>
+              </div>
             </div>
 
-            {/* Refresh iframe button */}
-            <button
-              onClick={() => setIframeKey((k) => k + 1)}
-              className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition cursor-pointer"
-              title="Ricarica Notebook"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-
-            {/* Direct Open in New Tab Button */}
-            <a
-              href={notebookUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs shadow-sm transition active:scale-95 cursor-pointer"
-              title="Apri direttamente sul portale Google Notebook in una nuova finestra"
-            >
-              <span>Apri in Google</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-
-            {/* Fullscreen toggle */}
-            <button
-              onClick={() => setIsFullscreen(!isFullscreen)}
-              className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition cursor-pointer"
-              title={isFullscreen ? 'Riduci finestra' : 'Schermo intero'}
-            >
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
-
-            {/* Close button */}
-            <button
-              onClick={onClose}
-              className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition cursor-pointer"
-              title="Chiudi"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Info banner explaining Google Login & Zoom Tip */}
-        <div className="bg-blue-50 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/40 px-3 sm:px-4 py-2 flex items-center justify-between gap-3 text-xs text-blue-900 dark:text-blue-200 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-            <span className="truncate">
-              Zoom vista regolabile: usa i tasti <strong className="text-orange-600 dark:text-orange-400">[-] [+]</strong> o i preset <strong className="text-orange-600 dark:text-orange-400">50% • 65% • 80%</strong> per rimpicciolire NotebookLM sul tuo schermo.
-            </span>
-          </div>
-          <a
-            href={notebookUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="sm:hidden inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400 shrink-0"
-          >
-            Apri fuori <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-
-        {/* Embedded Web View Container with User-Adjustable Zoom Scaling */}
-        <div className="relative flex-1 w-full bg-slate-100 dark:bg-slate-950 flex flex-col overflow-auto">
-          <div
-            className="flex-1 w-full h-full flex flex-col transition-transform duration-150"
-            style={{
-              transform: `scale(${zoomLevel})`,
-              transformOrigin: 'top left',
-              width: `${100 / zoomLevel}%`,
-              height: `${100 / zoomLevel}%`,
-              minWidth: `${100 / zoomLevel}%`,
-              minHeight: `${100 / zoomLevel}%`,
-            }}
-          >
-            <iframe
-              key={iframeKey}
-              src={notebookUrl}
-              title="Google NotebookLM 5LB"
-              className="w-full h-full flex-1 border-none"
-              allow="clipboard-write; clipboard-read; camera; microphone"
-              sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
-            />
-          </div>
-
-          {/* Floating User Zoom Controller Toolbar (Bottom Left on desktop, centered bottom on mobile) */}
-          <div className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-20 pointer-events-auto">
-            <div className="flex items-center gap-1 sm:gap-1.5 bg-[#0e1838]/95 backdrop-blur-md text-white border border-slate-700/80 rounded-2xl p-1.5 shadow-2xl">
-              <span className="text-[11px] font-semibold text-slate-300 pl-1.5 hidden sm:inline">Zoom:</span>
-              
+            {/* Launch Buttons */}
+            <div className="mt-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
               <button
-                onClick={handleZoomOut}
-                className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-xl transition cursor-pointer"
-                title="Riduci zoom vista (-5%)"
+                onClick={handleLaunch}
+                className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-lg shadow-blue-500/25 active:scale-95 transition cursor-pointer"
               >
-                <ZoomOut className="w-4 h-4" />
+                <Smartphone className="w-4 h-4 shrink-0" />
+                <span>Apri nell’app / Webview Google</span>
+                <ArrowRight className="w-4 h-4 shrink-0" />
               </button>
 
               <button
-                onClick={handleResetZoom}
-                className="px-2 py-0.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 font-mono text-xs font-bold text-orange-400 hover:text-orange-300 transition cursor-pointer border border-slate-700/60"
-                title="Tocca per ripristinare zoom consigliato"
+                onClick={handleCopyLink}
+                className="flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-750 transition cursor-pointer"
+                title="Copia link per condivisione o altri browser"
               >
-                {Math.round(zoomLevel * 100)}%
+                {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                <span>{copied ? 'Copiato!' : 'Copia link'}</span>
               </button>
+            </div>
+          </div>
 
-              <button
-                onClick={handleZoomIn}
-                className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-xl transition cursor-pointer"
-                title="Aumenta zoom vista (+5%)"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
+          {/* How it works info */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
+              <Smartphone className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-slate-800 dark:text-slate-200 block mb-0.5">
+                  Priorità automatica all'App
+                </strong>
+                <span className="text-slate-500 dark:text-slate-400">
+                  Se hai installato l’app o la PWA di NotebookLM sul dispositivo, si apre direttamente nell’applicazione nativa.
+                </span>
+              </div>
+            </div>
 
-              {/* Quick Preset Zoom Chips */}
-              <div className="hidden xs:flex items-center gap-1 pl-1 border-l border-slate-700/80">
-                {[
-                  { label: '50%', val: 0.5 },
-                  { label: '65%', val: 0.65 },
-                  { label: '80%', val: 0.8 },
-                  { label: '100%', val: 1.0 },
-                ].map((chip) => (
-                  <button
-                    key={chip.label}
-                    onClick={() => updateZoom(chip.val)}
-                    className={`px-1.5 py-0.5 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
-                      Math.abs(zoomLevel - chip.val) < 0.03
-                        ? 'bg-orange-600 text-white'
-                        : 'text-slate-300 hover:text-white hover:bg-white/10'
-                    }`}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
+              <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-slate-800 dark:text-slate-200 block mb-0.5">
+                  Webview Google funzionante
+                </strong>
+                <span className="text-slate-500 dark:text-slate-400">
+                  Se l'app non è installata, si apre la webview ufficiale di Google con il tuo account, senza blocchi o schermate grigie.
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Quick float fallback bar if user needs full Google login in separate tab */}
-          <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-10 pointer-events-auto">
-            <a
-              href={notebookUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0e1838]/95 backdrop-blur-md hover:bg-slate-800 text-white font-medium text-xs shadow-xl border border-slate-700/80 transition active:scale-95 group"
-            >
-              <Sparkles className="w-4 h-4 text-amber-400 group-hover:rotate-12 transition-transform" />
-              <span>Difficoltà di accesso? Apri in scheda Google</span>
-              <ExternalLink className="w-3.5 h-3.5 text-slate-300" />
-            </a>
+          {/* Suggested Prompts */}
+          <div>
+            <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <span>Domande d’esempio che puoi fare</span>
+            </h4>
+            <div className="flex flex-col gap-1.5">
+              {suggestedQuestions.map((q, idx) => (
+                <button
+                  key={idx}
+                  onClick={handleLaunch}
+                  className="text-left p-2.5 rounded-xl bg-slate-50 hover:bg-orange-50 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/60 text-xs text-slate-700 dark:text-slate-300 hover:text-orange-600 dark:hover:text-orange-400 transition flex items-center justify-between gap-2 cursor-pointer group"
+                >
+                  <span className="truncate">{q}</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-orange-500 shrink-0" />
+                </button>
+              ))}
+            </div>
           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="bg-slate-50 dark:bg-slate-800/60 px-5 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <span className="truncate">
+            Richiede un account Google per salvare conversazioni e note.
+          </span>
+          <button
+            onClick={onClose}
+            className="px-3 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 font-medium transition cursor-pointer"
+          >
+            Chiudi
+          </button>
         </div>
       </div>
     </div>
