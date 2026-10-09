@@ -80,8 +80,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   themeMode,
   onCycleTheme,
 }) => {
-  // Collapsed / Expanded states for macrosections
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  // Collapsed / Expanded states for macrosections (INFORMAZIONE is open by default)
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const s of sections) {
+      if (s.defaultOpen) {
+        initial[s.id] = true;
+      }
+    }
+    return initial;
+  });
 
   const toggleSection = (sectionId: string) => {
     setExpandedSections((prev) => {

@@ -14,12 +14,17 @@ app.use(express.json());
 // Blogger Feed Proxy endpoint
 app.get('/api/feed', async (req, res) => {
   try {
-    const maxResults = req.query['max-results'] || '80';
+    const maxResults = req.query['max-results'] || '15';
+    const startIndex = req.query['start-index'] || '1';
     const category = req.query['category'] as string | undefined;
+    const q = req.query['q'] as string | undefined;
 
-    let targetUrl = `https://magazine.5lb.eu/feeds/posts/default?alt=json&max-results=${maxResults}`;
+    let targetUrl = `https://magazine.5lb.eu/feeds/posts/default?alt=json&max-results=${maxResults}&start-index=${startIndex}`;
     if (category) {
-      targetUrl = `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json&max-results=${maxResults}`;
+      targetUrl = `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json&max-results=${maxResults}&start-index=${startIndex}`;
+    }
+    if (q) {
+      targetUrl += `&q=${encodeURIComponent(q)}`;
     }
 
     const response = await fetch(targetUrl, {

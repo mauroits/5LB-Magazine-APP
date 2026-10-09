@@ -5,27 +5,82 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+function getBrowserEnv() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return {
+      isStandalone: false,
+      isIOS: false,
+      isAndroid: false,
+      isOpera: false,
+      isFirefox: false,
+      isUnsupported: false,
+      browserName: '',
+    };
+  }
+
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+
+  const ua = window.navigator.userAgent.toLowerCase();
+  const isIOS = /iphone|ipad|ipod/.test(ua);
+  const isAndroid = /android/.test(ua);
+  const isOpera = /opr\/|opera/i.test(ua);
+  const isFirefox = /firefox|fxios/i.test(ua);
+
+  // Chrome / Edge / Chromium based check (Opera also has chrome in UA, so exclude Opera)
+  const isChromium = (/chrome|crios|edg\//i.test(ua) || Boolean((window as any).chrome)) && !isOpera;
+
+  let isUnsupported = false;
+  let browserName = '';
+
+  if (isOpera) {
+    isUnsupported = true;
+    browserName = 'Opera';
+  } else if (isFirefox) {
+    isUnsupported = true;
+    browserName = 'Firefox';
+  } else if (!isIOS && !isChromium) {
+    isUnsupported = true;
+    browserName = 'questo browser';
+  }
+
+  return {
+    isStandalone,
+    isIOS,
+    isAndroid,
+    isOpera,
+    isFirefox,
+    isUnsupported,
+    browserName,
+  };
+}
+
 export function usePWAInstall() {
+  const initial = getBrowserEnv();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-  const [isOpera, setIsOpera] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(initial.isStandalone);
+  const [isIOS, setIsIOS] = useState(initial.isIOS);
+  const [isAndroid, setIsAndroid] = useState(initial.isAndroid);
+  const [isOpera, setIsOpera] = useState(initial.isOpera);
+  const [isFirefox, setIsFirefox] = useState(initial.isFirefox);
+  const [isUnsupportedBrowser, setIsUnsupportedBrowser] = useState(initial.isUnsupported);
+  const [unsupportedBrowserName, setUnsupportedBrowserName] = useState(initial.browserName);
 
   useEffect(() => {
-    // Detect standalone mode (already installed)
+    // Re-verify standalone mode
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as unknown as { standalone?: boolean }).standalone === true;
     setIsInstalled(isStandalone);
 
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    // Detect iOS devices
-    const isIOSDevice = /iphone|ipad|ipod/.test(userAgent);
-    setIsIOS(isIOSDevice);
-
-    // Detect Opera / Opera Mobile
-    const isOperaDevice = /opr\/|opera/i.test(userAgent);
-    setIsOpera(isOperaDevice);
+    const env = getBrowserEnv();
+    setIsIOS(env.isIOS);
+    setIsAndroid(env.isAndroid);
+    setIsOpera(env.isOpera);
+    setIsFirefox(env.isFirefox);
+    setIsUnsupportedBrowser(env.isUnsupported);
+    setUnsupportedBrowserName(env.browserName);
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
@@ -62,7 +117,11 @@ export function usePWAInstall() {
     isInstallable: !!deferredPrompt,
     isInstalled,
     isIOS,
+    isAndroid,
     isOpera,
+    isFirefox,
+    isUnsupportedBrowser,
+    unsupportedBrowserName,
     install,
   };
 }

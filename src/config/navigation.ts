@@ -71,7 +71,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'informazione',
     title: 'INFORMAZIONE',
     collapsible: true,
-    defaultOpen: false,
+    defaultOpen: true,
     items: [
       {
         id: 'info-premessa',

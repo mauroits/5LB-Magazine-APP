@@ -98,18 +98,43 @@ export function saveFavoritePostIds(ids: Set<string>) {
   }
 }
 
+export const DEFAULT_PAGE_SIZE = 15;
+
+export interface FetchBloggerPostsResult {
+  posts: BloggerPost[];
+  totalResults: number;
+  hasMore: boolean;
+}
+
+export function getCachedPosts(): BloggerPost[] {
+  try {
+    const raw = localStorage.getItem(FEED_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn('Errore lettura cache post:', e);
+  }
+  return [];
+}
+
 /**
  * Fetch feed using Google Blogger's official JSONP protocol (alt=json-in-script).
  * Avoids browser CORS restrictions on static deployments (e.g. app.5lb.eu or GitHub Pages).
  */
-function fetchBloggerJsonp(maxResults: number, category?: string): Promise<any> {
+function fetchBloggerJsonp(maxResults: number, startIndex: number = 1, category?: string, q?: string): Promise<any> {
   return new Promise((resolve, reject) => {
     const cbName = `blogger_cb_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
     const script = document.createElement('script');
 
     let fullUrl = category
-      ? `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json-in-script&callback=${cbName}&max-results=${maxResults}`
-      : `https://magazine.5lb.eu/feeds/posts/default?alt=json-in-script&callback=${cbName}&max-results=${maxResults}`;
+      ? `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json-in-script&callback=${cbName}&max-results=${maxResults}&start-index=${startIndex}`
+      : `https://magazine.5lb.eu/feeds/posts/default?alt=json-in-script&callback=${cbName}&max-results=${maxResults}&start-index=${startIndex}`;
+
+    if (q) {
+      fullUrl += `&q=${encodeURIComponent(q)}`;
+    }
 
     script.src = fullUrl;
     script.async = true;
@@ -147,33 +172,44 @@ function fetchBloggerJsonp(maxResults: number, category?: string): Promise<any> 
 
 export async function fetchBloggerPosts(options?: {
   maxResults?: number;
+  startIndex?: number;
   category?: string;
+  q?: string;
   forceRefresh?: boolean;
-}): Promise<BloggerPost[]> {
-  const maxResults = options?.maxResults || 100;
+}): Promise<FetchBloggerPostsResult> {
+  const maxResults = options?.maxResults || DEFAULT_PAGE_SIZE;
+  const startIndex = options?.startIndex || 1;
   const category = options?.category;
+  const q = options?.q;
   const forceRefresh = options?.forceRefresh || false;
 
   // Check cached data
-  const cachedRaw = localStorage.getItem(FEED_CACHE_KEY);
-  let cachedPosts: BloggerPost[] = [];
-  if (cachedRaw) {
-    try {
-      cachedPosts = JSON.parse(cachedRaw);
-    } catch (e) {
-      // ignore
-    }
-  }
+  let cachedPosts: BloggerPost[] = getCachedPosts();
 
   // If offline and have cache, return cache immediately
   if (!navigator.onLine && cachedPosts.length > 0) {
-    return applyFilter(cachedPosts, category);
+    let filtered = applyFilter(cachedPosts, category);
+    if (q) {
+      const qLow = q.toLowerCase();
+      filtered = filtered.filter(
+        (p) =>
+          p.title.toLowerCase().includes(qLow) ||
+          p.summary.toLowerCase().includes(qLow) ||
+          p.categories.some((c) => c.toLowerCase().includes(qLow))
+      );
+    }
+    return {
+      posts: filtered.slice(startIndex - 1, startIndex - 1 + maxResults),
+      totalResults: filtered.length,
+      hasMore: startIndex + maxResults - 1 < filtered.length,
+    };
   }
 
   // If forceRefresh is requested on general feed, clear cache entry
-  if (forceRefresh && !category) {
+  if (forceRefresh && !category && !q && startIndex === 1) {
     try {
       localStorage.removeItem(FEED_CACHE_KEY);
+      cachedPosts = [];
     } catch (e) {
       // ignore
     }
@@ -183,9 +219,13 @@ export async function fetchBloggerPosts(options?: {
 
   // Method 1: Try local backend proxy /api/feed (fast on full-stack dev/server)
   try {
-    const proxyUrl = category
-      ? `/api/feed?max-results=${maxResults}&category=${encodeURIComponent(category)}`
-      : `/api/feed?max-results=${maxResults}`;
+    let proxyUrl = category
+      ? `/api/feed?max-results=${maxResults}&start-index=${startIndex}&category=${encodeURIComponent(category)}`
+      : `/api/feed?max-results=${maxResults}&start-index=${startIndex}`;
+
+    if (q) {
+      proxyUrl += `&q=${encodeURIComponent(q)}`;
+    }
 
     const res = await fetch(proxyUrl, { headers: { Accept: 'application/json' } });
     const contentType = res.headers.get('content-type') || '';
@@ -199,7 +239,7 @@ export async function fetchBloggerPosts(options?: {
   // Method 2: If proxy not available or failed, use native Blogger JSONP (100% CORS-free client side)
   if (!jsonResult || !jsonResult.feed) {
     try {
-      jsonResult = await fetchBloggerJsonp(maxResults, category);
+      jsonResult = await fetchBloggerJsonp(maxResults, startIndex, category, q);
     } catch (errJsonp) {
       console.warn('Blogger JSONP fetch failed, trying direct fetch:', errJsonp);
     }
@@ -208,9 +248,13 @@ export async function fetchBloggerPosts(options?: {
   // Method 3: Fallback to direct fetch
   if (!jsonResult || !jsonResult.feed) {
     try {
-      const directBloggerUrl = category
-        ? `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json&max-results=${maxResults}`
-        : `https://magazine.5lb.eu/feeds/posts/default?alt=json&max-results=${maxResults}`;
+      let directBloggerUrl = category
+        ? `https://magazine.5lb.eu/feeds/posts/default/-/${encodeURIComponent(category)}?alt=json&max-results=${maxResults}&start-index=${startIndex}`
+        : `https://magazine.5lb.eu/feeds/posts/default?alt=json&max-results=${maxResults}&start-index=${startIndex}`;
+
+      if (q) {
+        directBloggerUrl += `&q=${encodeURIComponent(q)}`;
+      }
 
       const res = await fetch(directBloggerUrl);
       if (res.ok) {
@@ -224,10 +268,18 @@ export async function fetchBloggerPosts(options?: {
   // If network failed but we have cache, fallback gracefully
   if (!jsonResult || !jsonResult.feed || !Array.isArray(jsonResult.feed.entry)) {
     if (cachedPosts.length > 0) {
-      return applyFilter(cachedPosts, category);
+      const filtered = applyFilter(cachedPosts, category);
+      return {
+        posts: filtered.slice(startIndex - 1, startIndex - 1 + maxResults),
+        totalResults: filtered.length,
+        hasMore: startIndex + maxResults - 1 < filtered.length,
+      };
     }
     throw new Error('Impossibile scaricare i post del magazine. Verifica la connessione internet.');
   }
+
+  const rawTotal = jsonResult.feed?.openSearch$totalResults?.$t;
+  const totalResults = rawTotal ? parseInt(rawTotal, 10) : 0;
 
   const readIds = getReadPostIds();
   const favIds = getFavoritePostIds();
@@ -294,25 +346,47 @@ export async function fetchBloggerPosts(options?: {
     };
   });
 
-  // Merge and update cached posts in localStorage
-  try {
-    let merged = [...cachedPosts];
-    for (const post of parsedPosts) {
-      const existingIdx = merged.findIndex((p) => p.id === post.id);
-      if (existingIdx >= 0) {
-        merged[existingIdx] = post;
-      } else {
-        merged.push(post);
+  // Merge and update cached posts in localStorage for general feed
+  if (!category) {
+    try {
+      let merged = [...cachedPosts];
+      for (const post of parsedPosts) {
+        const existingIdx = merged.findIndex((p) => p.id === post.id);
+        if (existingIdx >= 0) {
+          merged[existingIdx] = post;
+        } else {
+          merged.push(post);
+        }
       }
+      // Keep sorted by publication date descending
+      merged.sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime());
+      localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(merged.slice(0, 300)));
+    } catch (e) {
+      console.warn('LocalStorage pieno per la cache dei post:', e);
     }
-    // Keep sorted by publication date descending
-    merged.sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime());
-    localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(merged.slice(0, 300)));
-  } catch (e) {
-    console.warn('LocalStorage pieno per la cache dei post:', e);
   }
 
-  return parsedPosts;
+  const hasMore = totalResults > 0
+    ? (startIndex + validEntries.length - 1 < totalResults)
+    : (validEntries.length >= maxResults);
+
+  return {
+    posts: parsedPosts,
+    totalResults: totalResults || parsedPosts.length,
+    hasMore,
+  };
+}
+
+// Search the entire online Blogger archive by query
+export async function searchBloggerArchive(
+  query: string,
+  maxResults = 30
+): Promise<FetchBloggerPostsResult> {
+  return fetchBloggerPosts({
+    q: query.trim(),
+    maxResults,
+    startIndex: 1,
+  });
 }
 
 function applyFilter(posts: BloggerPost[], category?: string): BloggerPost[] {
