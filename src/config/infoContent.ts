@@ -10,7 +10,7 @@
 // 1. Configurazione del Banner (mostrato in cima alla lista degli articoli)
 export const AI_BANNER_CONFIG = {
   badge: 'Ricerca semantica',
-  title: 'Fai una domanda sulle 5 Leggi Biologiche',
+  title: 'Fai una domanda in linguaggio naturale',
   description:
     'Esplora il mondo osservato attraverso le 5LB, sintetizza le leggi biologiche e poni quesiti (account Google necessario).',
   buttonText: 'Chiedimi',

@@ -1,6 +1,6 @@
 # 5LB Magazine — Progressive Web App (PWA)
 
-Aggregatore di feed RSS ufficiale per [magazine.5lb.eu](https://magazine.5lb.eu) ospitato su Blogger, con integrazione delle risorse formative sulle 5 Leggi Biologiche, logo ufficiale 5LB, assistente IA con Google NotebookLM, pagina di informazioni/privacy e notifiche push in tempo reale.
+Aggregatore di feed RSS ufficiale per [magazine.5lb.eu](https://magazine.5lb.eu), con integrazione delle risorse formative sulle 5 Leggi Biologiche, assistente IA con Gemini e notifiche push in tempo reale.
 
 ---
 
@@ -10,8 +10,6 @@ Aggregatore di feed RSS ufficiale per [magazine.5lb.eu](https://magazine.5lb.eu)
   - Installabile su qualsiasi smartphone (Android, iOS con guida guidata) e tablet/desktop.
   - Funzionamento offline con cache automatica dei post consultati.
   - Conforme agli standard PWA (Service Worker, Web App Manifest, icone ad alta risoluzione).
-- 🎨 **Logo Ufficiale 5LB Integrato**:
-  - Il logo ufficiale `5LB` è integrato direttamente sia nella testata principale (Home) sia nella barra superiore del menu laterale (Drawer).
 - 📰 **Aggregatore Feed RSS da Blogger**:
   - Collegato in tempo reale ai feed pubblici di `https://magazine.5lb.eu/feeds/posts/default?alt=json`.
   - Conteggio articoli automatico e aggiornamento live dei badge di categoria.
@@ -124,4 +122,4 @@ In ambiente full-stack, `server.ts` fornisce endpoint proxy `/api/feed` e `/api/
 
 ## 📄 Licenza & Privacy
 Realizzato per **5LB Magazine** (magazine.5lb.eu). Tutti i diritti sui contenuti appartengono ai rispettivi autori.
-Informativa sulla privacy: https://5lb.eu/privacy
+Informativa sulla privacy: https://framework.5lb.eu/it/privacy-policy

@@ -147,7 +147,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {displayedPosts.length} {displayedPosts.length === 1 ? 'articolo trovato' : 'articoli trovati'}
-              {isShuffleActive && ' • Ordine casuale'}
+              {isShuffleActive && ' • Casuale'}
             </p>
           </div>
 
@@ -525,7 +525,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
             )}
           </button>
           <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-2">
-            Scarica i successivi 15 articoli senza sovraccaricare il server
+            Scarica i successivi 15 articoli
           </span>
         </div>
       )}

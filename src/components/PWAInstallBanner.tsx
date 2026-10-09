@@ -90,7 +90,7 @@ export const PWAInstallBanner: React.FC = () => {
             {isUnsupportedBrowser ? (
               <>
                 <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Info PWA</span>
+                <span>Info</span>
               </>
             ) : (
               <>
@@ -129,12 +129,12 @@ export const PWAInstallBanner: React.FC = () => {
 
             <div className="mt-4 space-y-3.5 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
               <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs leading-relaxed">
-                <strong>Attenzione:</strong> Questo browser ({unsupportedBrowserName || 'il browser attuale'}) non supporta la vera installazione PWA. L'opzione &ldquo;Aggiungi a schermata iniziale&rdquo; in questo browser crea solo un <em>semplice collegamento/link web</em> (falsa installazione), privo di avvio autonomo a schermo intero, consultazione offline e notifiche push.
+                <strong>Attenzione:</strong> Questo browser ({unsupportedBrowserName || 'il browser attuale'}) non supporta l'installazione di questa app. L'opzione &ldquo;Aggiungi a schermata iniziale&rdquo; in questo browser crea solo un <em>semplice collegamento/link web</em> privo di avvio autonomo a schermo intero, consultazione offline e notifiche push.
               </div>
 
               <div>
                 <h4 className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm mb-2">
-                  Procedura corretta per installare la vera App:
+                  Procedura per installare:
                 </h4>
                 <ol className="space-y-2 list-decimal list-inside text-xs leading-relaxed">
                   <li>
