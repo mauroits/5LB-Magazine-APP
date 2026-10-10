@@ -7,7 +7,7 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
   const {
     isInstallable,
     isStandalone,
-    isDeviceInstalled,
+    isInstalled,
     isIOS,
     isUnsupportedBrowser,
     unsupportedBrowserName,
@@ -17,7 +17,7 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
 
   const [activeModal, setActiveModal] = useState<'unsupported' | 'ios' | 'launch' | null>(null);
 
-  // If running right now inside standalone window
+  // 1. Running inside the installed native PWA window (Standalone)
   if (isStandalone) {
     if (compact) return null;
     return (
@@ -28,23 +28,19 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
     );
   }
 
-  // If already installed on device, but opened in a browser tab
-  if (isDeviceInstalled) {
-    if (compact) return null;
+  // 2. Running in a browser, but the app is verified as already installed on the system
+  if (isInstalled && !isInstallable) {
     return (
       <>
         <button
           onClick={() => setActiveModal('launch')}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs font-semibold transition hover:bg-emerald-100 dark:hover:bg-emerald-900/50 cursor-pointer"
-          title="App già installata sulla schermata Home"
+          className={`flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-sm transition active:scale-95 cursor-pointer ${
+            compact ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-xs sm:text-sm w-full justify-center'
+          }`}
+          title="Apri l'app 5LB Magazine installata sul dispositivo"
         >
-          <div className="flex items-center gap-2">
-            <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>App installata</span>
-          </div>
-          <span className="text-[11px] font-normal text-emerald-600 dark:text-emerald-400 underline">
-            Info avvio
-          </span>
+          <Smartphone className="w-4 h-4" />
+          <span>Apri App</span>
         </button>
 
         <PWAInstallGuideModal
@@ -57,32 +53,23 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
     );
   }
 
-  // Chromium / Android / Desktop flow (standard beforeinstallprompt)
+  // 3. Chromium / Android / Desktop flow (Standard beforeinstallprompt)
   if (isInstallable) {
     return (
-      <>
-        <button
-          onClick={install}
-          className={`flex items-center gap-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium shadow-sm transition active:scale-95 cursor-pointer ${
-            compact ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-xs sm:text-sm w-full justify-center'
-          }`}
-          title="Installa l'app 5LB Magazine sul dispositivo"
-        >
-          <Download className="w-4 h-4" />
-          <span>Installa App</span>
-        </button>
-
-        <PWAInstallGuideModal
-          isOpen={activeModal !== null}
-          onClose={() => setActiveModal(null)}
-          mode={activeModal || 'unsupported'}
-          browserName={unsupportedBrowserName}
-        />
-      </>
+      <button
+        onClick={install}
+        className={`flex items-center gap-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium shadow-sm transition active:scale-95 cursor-pointer ${
+          compact ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-xs sm:text-sm w-full justify-center'
+        }`}
+        title="Installa l'app 5LB Magazine sul dispositivo"
+      >
+        <Download className="w-4 h-4" />
+        <span>Installa App</span>
+      </button>
     );
   }
 
-  // Unsupported Browser flow (Opera, Firefox, etc.)
+  // 4. Unsupported Browser flow (Opera, Firefox, etc.)
   if (isUnsupportedBrowser) {
     return (
       <>
@@ -107,7 +94,7 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
     );
   }
 
-  // iOS Safari flow
+  // 5. iOS Safari flow
   if (isIOS) {
     return (
       <>

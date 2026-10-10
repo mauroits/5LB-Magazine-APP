@@ -1,14 +1,11 @@
 /**
- * PWA Launcher & Installation State Manager for 5LB Magazine
- * Manages cross-browser PWA detection, deep-linking,
- * and reliable launching of the installed app without redirect loops or white screens.
+ * PWA Detection & Launcher utility for 5LB Magazine
+ * Simple, robust detection of standalone native mode and platform app launching.
  */
 
-const STORAGE_KEY_INSTALLED = '5lb_app_installed_on_device';
-const COOKIE_NAME = '5lb_pwa_installed';
-
 /**
- * Checks if the current window is executing inside a standalone PWA display mode.
+ * Checks if the user is currently viewing the application inside the installed native PWA window
+ * (standalone, fullscreen, minimal-ui, or iOS home screen webclip).
  */
 export function isRunningStandalone(): boolean {
   if (typeof window === 'undefined') return false;
@@ -34,65 +31,22 @@ export function isRunningStandalone(): boolean {
 }
 
 /**
- * Reads persistent status indicating whether the app is installed on this device.
+ * Clean up legacy storage flags that caused uninstalled apps to be mistakenly treated as installed.
  */
-export function isAppInstalledOnDevice(): boolean {
-  if (typeof window === 'undefined') return false;
-
-  // If running in standalone mode right now, it is definitely installed
-  if (isRunningStandalone()) {
-    setAppInstalledOnDevice(true);
-    return true;
-  }
-
-  // Check localStorage
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY_INSTALLED);
-    if (stored === 'true') return true;
-  } catch (e) {
-    // ignore
-  }
-
-  // Check document.cookie as a secondary fallback
-  try {
-    if (document.cookie.includes(`${COOKIE_NAME}=1`)) {
-      return true;
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  return false;
-}
-
-/**
- * Persists installation state across browser sessions and notifies listeners.
- */
-export function setAppInstalledOnDevice(installed: boolean): void {
+export function clearLegacyInstalledFlags(): void {
   if (typeof window === 'undefined') return;
-
   try {
-    localStorage.setItem(STORAGE_KEY_INSTALLED, installed ? 'true' : 'false');
+    localStorage.removeItem('5lb_app_installed_on_device');
+    sessionStorage.removeItem('5lb_auto_launch_attempted');
+    document.cookie = '5lb_pwa_installed=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
   } catch (e) {
     // ignore
   }
-
-  try {
-    document.cookie = `${COOKIE_NAME}=${installed ? '1' : '0'}; path=/; max-age=31536000; SameSite=Lax`;
-  } catch (e) {
-    // ignore
-  }
-
-  // Dispatch event so hooks and UI update immediately
-  window.dispatchEvent(
-    new CustomEvent('5lb:pwa-installed-status-changed', {
-      detail: { isInstalled: installed },
-    })
-  );
 }
 
 /**
- * Asynchronously inspects navigator.getInstalledRelatedApps (supported on Chromium / Android)
+ * Queries navigator.getInstalledRelatedApps (supported on Chromium / Android).
+ * Returns true ONLY if Chrome / Android reports an active installed app.
  */
 export async function detectInstalledRelatedApps(): Promise<boolean> {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
@@ -104,10 +58,7 @@ export async function detectInstalledRelatedApps(): Promise<boolean> {
   if (typeof nav.getInstalledRelatedApps === 'function') {
     try {
       const apps = await nav.getInstalledRelatedApps();
-      if (apps && apps.length > 0) {
-        setAppInstalledOnDevice(true);
-        return true;
-      }
+      return Array.isArray(apps) && apps.length > 0;
     } catch (e) {
       // ignore
     }
@@ -117,42 +68,28 @@ export async function detectInstalledRelatedApps(): Promise<boolean> {
 }
 
 /**
- * Launches the installed app on the system using generic Android VIEW intent
- * or custom protocol handler, WITHOUT hardcoding com.android.chrome.
+ * Opens the installed app using generic Android VIEW intent or registered protocol handler.
+ * Never hardcodes com.android.chrome to avoid browser loops.
  */
 export function launchInstalledApp(targetUrl?: string): void {
   if (typeof window === 'undefined') return;
 
-  // If already running inside standalone app, do nothing to avoid white screens
+  // If already running inside the installed standalone PWA, do nothing
   if (isRunningStandalone()) {
     return;
   }
-
-  // Mark device as having the app installed
-  setAppInstalledOnDevice(true);
 
   const destination = targetUrl || window.location.href;
   const ua = window.navigator.userAgent.toLowerCase();
   const isAndroid = /android/.test(ua);
 
   if (isAndroid) {
-    // Use generic Android VIEW intent WITHOUT package=com.android.chrome
-    // This allows Android OS to route directly to the installed 5LB WebAPK/PWA
+    // Universal Android intent that lets Android OS route directly to the installed 5LB WebAPK
     const intentUrl = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;action=android.intent.action.VIEW;end`;
     window.location.href = intentUrl;
   } else {
-    // On iOS or desktop, attempt the registered protocol handler
+    // iOS Safari or desktop with registered protocol
     const protocolUrl = `web+magazine5lb://open?url=${encodeURIComponent(destination)}`;
     window.location.href = protocolUrl;
   }
-}
-
-/**
- * Deprecated / Disabled auto-launch on page load:
- * Automatic redirects on initial page load cause crashes/white screens in native webviews
- * and infinite loops in Chrome. Must return false without navigating.
- */
-export function attemptAutoLaunchOnLoad(): boolean {
-  // Completely disabled to prevent white-screen crashes and redirect loops
-  return false;
 }

@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   isRunningStandalone,
-  isAppInstalledOnDevice,
-  setAppInstalledOnDevice,
+  clearLegacyInstalledFlags,
   detectInstalledRelatedApps,
   launchInstalledApp,
 } from '../utils/pwaLauncher';
@@ -16,7 +15,6 @@ function getBrowserEnv() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return {
       isStandalone: false,
-      isInstalledOnDevice: false,
       isIOS: false,
       isAndroid: false,
       isOpera: false,
@@ -27,15 +25,13 @@ function getBrowserEnv() {
   }
 
   const isStandalone = isRunningStandalone();
-  const isInstalledOnDevice = isAppInstalledOnDevice();
-
   const ua = window.navigator.userAgent.toLowerCase();
   const isIOS = /iphone|ipad|ipod/.test(ua);
   const isAndroid = /android/.test(ua);
   const isOpera = /opr\/|opera/i.test(ua);
   const isFirefox = /firefox|fxios/i.test(ua);
 
-  // Chrome / Edge / Chromium based check (Opera also has chrome in UA, so exclude Opera)
+  // Chrome / Edge / Chromium based check
   const isChromium = (/chrome|crios|edg\//i.test(ua) || Boolean((window as any).chrome)) && !isOpera;
 
   let isUnsupported = false;
@@ -54,7 +50,6 @@ function getBrowserEnv() {
 
   return {
     isStandalone,
-    isInstalledOnDevice,
     isIOS,
     isAndroid,
     isOpera,
@@ -68,7 +63,7 @@ export function usePWAInstall() {
   const initial = getBrowserEnv();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isStandalone, setIsStandalone] = useState(initial.isStandalone);
-  const [isDeviceInstalled, setIsDeviceInstalled] = useState(initial.isInstalledOnDevice);
+  const [isInstalledOnDevice, setIsInstalledOnDevice] = useState(false);
   const [isIOS, setIsIOS] = useState(initial.isIOS);
   const [isAndroid, setIsAndroid] = useState(initial.isAndroid);
   const [isOpera, setIsOpera] = useState(initial.isOpera);
@@ -76,86 +71,75 @@ export function usePWAInstall() {
   const [isUnsupportedBrowser, setIsUnsupportedBrowser] = useState(initial.isUnsupported);
   const [unsupportedBrowserName, setUnsupportedBrowserName] = useState(initial.browserName);
 
-  const refreshState = useCallback(() => {
+  useEffect(() => {
+    // Clear any obsolete localStorage flags that previously caused false "installed" status
+    clearLegacyInstalledFlags();
+
     const env = getBrowserEnv();
     setIsStandalone(env.isStandalone);
-    setIsDeviceInstalled(env.isInstalledOnDevice);
     setIsIOS(env.isIOS);
     setIsAndroid(env.isAndroid);
     setIsOpera(env.isOpera);
     setIsFirefox(env.isFirefox);
     setIsUnsupportedBrowser(env.isUnsupported);
     setUnsupportedBrowserName(env.browserName);
-  }, []);
 
-  useEffect(() => {
-    refreshState();
-
-    // Check getInstalledRelatedApps asynchronously
+    // Check Chrome/Android installed related apps API
     detectInstalledRelatedApps().then((installed) => {
       if (installed) {
-        setIsDeviceInstalled(true);
+        setIsInstalledOnDevice(true);
       }
     });
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
+      // If beforeinstallprompt fired, the browser confirms the app is NOT installed
+      setIsInstalledOnDevice(false);
     };
 
     const handleAppInstalled = () => {
-      setAppInstalledOnDevice(true);
-      setIsDeviceInstalled(true);
+      setIsInstalledOnDevice(true);
       setDeferredPrompt(null);
-    };
-
-    const handleStatusChanged = (e: any) => {
-      if (e.detail?.isInstalled !== undefined) {
-        setIsDeviceInstalled(e.detail.isInstalled);
-      } else {
-        refreshState();
-      }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
-    window.addEventListener('5lb:pwa-installed-status-changed', handleStatusChanged);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
-      window.removeEventListener('5lb:pwa-installed-status-changed', handleStatusChanged);
     };
-  }, [refreshState]);
+  }, []);
 
   const install = async () => {
     if (!deferredPrompt) return false;
     await deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
-      setAppInstalledOnDevice(true);
-      setIsDeviceInstalled(true);
+      setIsInstalledOnDevice(true);
       setDeferredPrompt(null);
       return true;
     }
     return false;
   };
 
-  const markAsInstalled = useCallback(() => {
-    setAppInstalledOnDevice(true);
-    setIsDeviceInstalled(true);
-  }, []);
-
   const launchApp = useCallback(() => {
     launchInstalledApp();
   }, []);
 
+  // When beforeinstallprompt is active, the app is definitely installable
+  const isInstallable = Boolean(deferredPrompt);
+
+  // If in standalone mode, the app is running as an installed PWA
+  // If not standalone, isInstalled reflects verified OS installation (related apps or recent install)
+  const isInstalled = isStandalone || (!isInstallable && isInstalledOnDevice);
+
   return {
-    isInstallable: !!deferredPrompt,
+    isInstallable,
     isStandalone,
-    // Considered installed if running in standalone or marked/detected as installed on device
-    isInstalled: isStandalone || isDeviceInstalled,
-    isDeviceInstalled,
+    isInstalled,
+    isInstalledOnDevice,
     isIOS,
     isAndroid,
     isOpera,
@@ -163,7 +147,6 @@ export function usePWAInstall() {
     isUnsupportedBrowser,
     unsupportedBrowserName,
     install,
-    markAsInstalled,
     launchApp,
   };
 }

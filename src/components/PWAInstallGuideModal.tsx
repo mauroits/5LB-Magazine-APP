@@ -11,7 +11,7 @@ import {
   Smartphone,
   ArrowRight
 } from 'lucide-react';
-import { launchInstalledApp, setAppInstalledOnDevice } from '../utils/pwaLauncher';
+import { launchInstalledApp } from '../utils/pwaLauncher';
 
 interface PWAInstallGuideModalProps {
   isOpen: boolean;
@@ -45,14 +45,11 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
   };
 
   const handleDirectLaunchApp = () => {
-    setAppInstalledOnDevice(true);
     if (onInstalledMarked) onInstalledMarked();
     launchInstalledApp();
   };
 
   const handleMarkAsAlreadyInstalled = () => {
-    // Memorizza lo stato e chiude semplicemente il popup senza rimandare a Chrome o loopare
-    setAppInstalledOnDevice(true);
     if (onInstalledMarked) onInstalledMarked();
     onClose();
   };
