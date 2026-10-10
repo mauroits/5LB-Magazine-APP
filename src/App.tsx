@@ -24,7 +24,8 @@ import {
 import {
   initAnalyticsWithSavedConsent,
   getStoredCookieConsent,
-  trackEvent
+  trackEvent,
+  trackPageView
 } from './services/analytics';
 import { postMatchesExactPhrase } from './utils/searchUtils';
 import {
@@ -51,6 +52,20 @@ interface CategoryFeedState {
   posts: BloggerPost[];
   hasMore: boolean;
   totalResults: number;
+}
+
+function getArticlePath(post: BloggerPost): string {
+  try {
+    if (post.link) {
+      const parsed = new URL(post.link);
+      if (parsed.pathname && parsed.pathname !== '/') {
+        return parsed.pathname;
+      }
+    }
+  } catch {
+    // fallback se link non è un URL assoluto
+  }
+  return `/articolo/${encodeURIComponent(post.id)}`;
 }
 
 export default function App() {
@@ -327,7 +342,7 @@ export default function App() {
       const targetId = e.detail;
       const found = posts.find((p) => p.id === targetId);
       if (found) {
-        setSelectedPost(found);
+        handleSelectPost(found);
       }
     };
 
@@ -437,8 +452,8 @@ export default function App() {
     return '5LB Magazine';
   }, [activeFilter, searchQuery]);
 
-  // Post Actions
-  const handleSelectPost = (post: BloggerPost) => {
+  // Post Actions with History pushState & Google Analytics Virtual Pageviews
+  const handleSelectPost = useCallback((post: BloggerPost, updateHistory = true) => {
     const currentRead = getReadPostIds();
     currentRead.add(post.id);
     saveReadPostIds(currentRead);
@@ -458,13 +473,89 @@ export default function App() {
       return updated;
     });
 
-    setSelectedPost({ ...post, isRead: true });
+    const articlePath = getArticlePath(post);
+
+    if (updateHistory) {
+      window.history.pushState({ postId: post.id }, post.title, articlePath);
+    }
+    document.title = `${post.title} — 5LB Magazine`;
+
+    // Invia visualizzazione di pagina e evento a Google Analytics (attivo sia con cookie che con modellazione cookieless)
+    trackPageView(articlePath, post.title);
+    trackEvent('view_item', {
+      content_type: 'article',
+      item_id: post.id,
+      item_name: post.title,
+      page_path: articlePath,
+    });
     trackEvent('select_content', {
       content_type: 'article',
       item_id: post.id,
       item_name: post.title,
+      page_path: articlePath,
     });
-  };
+
+    setSelectedPost({ ...post, isRead: true });
+  }, []);
+
+  const handleClosePost = useCallback(() => {
+    setSelectedPost(null);
+    if (window.location.pathname !== '/') {
+      window.history.pushState({}, '5LB Magazine', '/');
+      document.title = '5LB Magazine';
+      trackPageView('/', '5LB Magazine');
+    }
+  }, []);
+
+  // Gestione del pulsante Indietro del browser / Android Back button
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state && e.state.postId) {
+        const found = posts.find((p) => p.id === e.state.postId);
+        if (found) {
+          handleSelectPost(found, false);
+          return;
+        }
+      }
+      // Se si torna alla pagina principale
+      setSelectedPost(null);
+      document.title = '5LB Magazine';
+      trackPageView(window.location.pathname || '/', '5LB Magazine');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [posts, handleSelectPost]);
+
+  // Deep linking al caricamento iniziale se l'URL contiene il percorso di un articolo
+  useEffect(() => {
+    if (posts.length > 0 && !selectedPost && window.location.pathname !== '/') {
+      const currentPath = window.location.pathname;
+      const matched = posts.find((p) => {
+        try {
+          return new URL(p.link).pathname === currentPath;
+        } catch {
+          return false;
+        }
+      });
+      if (matched) {
+        handleSelectPost(matched, false);
+      }
+    }
+  }, [posts, selectedPost, handleSelectPost]);
+
+  // Tracciamento categorie e filtri in Google Analytics
+  useEffect(() => {
+    if (activeFilter.type === 'rss') {
+      const categoryPath = `/categoria/${encodeURIComponent(activeFilter.category)}`;
+      const title = `${activeFilter.label || activeFilter.category} — 5LB Magazine`;
+      trackPageView(categoryPath, title);
+    } else if (activeFilter.type === 'quick' && activeFilter.id !== 'all') {
+      const filterPath = `/filtro/${activeFilter.id}`;
+      const title = `${filterTitle} — 5LB Magazine`;
+      trackPageView(filterPath, title);
+    }
+  }, [activeFilter, filterTitle]);
 
   const handleToggleFavorite = (postId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -747,7 +838,7 @@ export default function App() {
       {/* Modals */}
       <ArticleModal
         post={selectedPost}
-        onClose={() => setSelectedPost(null)}
+        onClose={handleClosePost}
         onToggleFavorite={handleToggleFavorite}
         isFavorite={selectedPost ? selectedPost.isFavorite || false : false}
         initialSearchQuery={searchQuery}

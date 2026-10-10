@@ -59,7 +59,7 @@ export function saveCookieConsent(analyticsGranted: boolean): CookieConsentSetti
     console.warn('Errore salvataggio consenso cookie:', err);
   }
 
-  // Aggiorna Google Consent Mode v2
+  // Aggiorna Google Consent Mode v2 (senza disabilitare lo script, consentendo modellazione e cookieless ping)
   applyConsentToGtag(analyticsGranted);
 
   return settings;
@@ -67,6 +67,8 @@ export function saveCookieConsent(analyticsGranted: boolean): CookieConsentSetti
 
 /**
  * Applica lo stato di consenso al dataLayer di Google Analytics (Consent Mode v2)
+ * Se l'utente rifiuta ('denied'), lo script NON viene bloccato:
+ * Google Analytics riceverà i ping anonimi privi di cookie permettendo la modellazione comportamentale.
  */
 export function applyConsentToGtag(analyticsGranted: boolean): void {
   if (typeof window === 'undefined') return;
@@ -86,14 +88,6 @@ export function applyConsentToGtag(analyticsGranted: boolean): void {
     ad_user_data: 'denied',
     ad_personalization: 'denied',
   });
-
-  if (analyticsGranted) {
-    window.gtag('event', 'page_view', {
-      page_title: document.title,
-      page_location: window.location.href,
-      page_path: window.location.pathname,
-    });
-  }
 }
 
 /**
@@ -110,45 +104,65 @@ export function initAnalyticsWithSavedConsent(): void {
   }
 
   const saved = getStoredCookieConsent();
+  const consentState = (saved && saved.hasChosen && saved.analytics) ? 'granted' : 'denied';
 
-  // Imposta lo stato iniziale di Consent Mode
-  if (saved && saved.hasChosen) {
-    const consentState = saved.analytics ? 'granted' : 'denied';
-    window.gtag('consent', 'default', {
-      analytics_storage: consentState,
-      ad_storage: 'denied',
-      ad_user_data: 'denied',
-      ad_personalization: 'denied',
-    });
-
-    if (saved.analytics) {
-      window.gtag('config', GA_MEASUREMENT_ID, {
-        anonymize_ip: true,
-      });
-      window.gtag('event', 'page_view', {
-        page_title: document.title,
-        page_location: window.location.href,
-        page_path: window.location.pathname,
-      });
-    }
-  } else {
-    // Di default tutto negato finché l'utente non esprime una scelta
-    window.gtag('consent', 'default', {
-      analytics_storage: 'denied',
-      ad_storage: 'denied',
-      ad_user_data: 'denied',
-      ad_personalization: 'denied',
-    });
-  }
+  // Assicura l'aggiornamento dello stato di consenso in Consent Mode v2
+  window.gtag('consent', 'update', {
+    analytics_storage: consentState,
+    ad_storage: 'denied',
+    ad_user_data: 'denied',
+    ad_personalization: 'denied',
+  });
 }
 
 /**
- * Traccia un evento personalizzato se il consenso per i cookie analitici è attivo
+ * Invia un evento di visualizzazione pagina (page_view) a Google Analytics.
+ * Funziona sempre con Consent Mode v2:
+ * - Se consenso concesso: tracciamento standard con cookie.
+ * - Se consenso negato: cookieless ping anonimo per tracciamento modellato GA4.
+ */
+export function trackPageView(pagePath: string, pageTitle?: string): void {
+  if (typeof window === 'undefined') return;
+
+  window.dataLayer = window.dataLayer || [];
+  if (!window.gtag) {
+    window.gtag = function () {
+      window.dataLayer.push(arguments);
+    };
+  }
+
+  const title = pageTitle || document.title;
+  const location = window.location.origin + pagePath;
+
+  // Aggiorna configurazione attiva di GA4
+  window.gtag('config', GA_MEASUREMENT_ID, {
+    page_path: pagePath,
+    page_title: title,
+    page_location: location,
+  });
+
+  // Notifica l'evento page_view per i report tempo reale e pagine/schermate
+  window.gtag('event', 'page_view', {
+    page_path: pagePath,
+    page_title: title,
+    page_location: location,
+  });
+}
+
+/**
+ * Traccia un evento personalizzato in Google Analytics.
+ * NON blocca mai la chiamata: la Consent Mode v2 di Google gestisce nativamente
+ * la conformità privacy rimuovendo i cookie quando il consenso è negato.
  */
 export function trackEvent(eventName: string, eventParams: Record<string, any> = {}): void {
-  if (typeof window === 'undefined' || !window.gtag) return;
-  const consent = getStoredCookieConsent();
-  if (consent && consent.analytics) {
-    window.gtag('event', eventName, eventParams);
+  if (typeof window === 'undefined') return;
+
+  window.dataLayer = window.dataLayer || [];
+  if (!window.gtag) {
+    window.gtag = function () {
+      window.dataLayer.push(arguments);
+    };
   }
+
+  window.gtag('event', eventName, eventParams);
 }
