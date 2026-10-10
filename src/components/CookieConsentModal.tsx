@@ -13,8 +13,7 @@ import {
 import {
   CookieConsentSettings,
   getStoredCookieConsent,
-  saveCookieConsent,
-  GA_MEASUREMENT_ID
+  saveCookieConsent
 } from '../services/analytics';
 
 interface CookieConsentModalProps {
@@ -128,11 +127,6 @@ export const CookieConsentModal: React.FC<CookieConsentModalProps> = ({
                   .
                 </p>
               </div>
-
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 pt-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>Tag Google Analytics: <code className="font-mono">{GA_MEASUREMENT_ID}</code></span>
-              </div>
             </div>
           ) : (
             /* Vista 2: Personalizzazione avanzata dei Cookie */
@@ -175,9 +169,6 @@ export const CookieConsentModal: React.FC<CookieConsentModalProps> = ({
                     <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                       <span>Cookie Analitici (Google Analytics)</span>
                     </h3>
-                    <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                      ID: {GA_MEASUREMENT_ID}
-                    </span>
                   </div>
 
                   {/* Toggle Switch */}

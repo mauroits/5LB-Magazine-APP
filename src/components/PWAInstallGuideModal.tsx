@@ -39,19 +39,29 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
   };
 
   const handleOpenChromeForInstall = () => {
-    // Only used when a user in Opera/Firefox explicitly wants to open Chrome to install the PWA
-    const intentUrl = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;end`;
-    window.location.href = intentUrl;
+    // Specifically targets Google Chrome without triggering the Android OS browser chooser
+    const targetUrl = window.location.href;
+    const cleanHostPath = `${window.location.host}${window.location.pathname}${window.location.search}`;
+
+    // 1. Direct Chrome custom URI scheme (only Chrome handles googlechrome:// on Android)
+    const googleChromeScheme = `googlechrome://navigate?url=${encodeURIComponent(targetUrl)}`;
+
+    // 2. Full Android Intent explicitly locked to com.android.chrome package with VIEW action and BROWSABLE category
+    const chromeIntentUrl = `intent://${cleanHostPath}#Intent;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;package=com.android.chrome;scheme=https;end`;
+
+    try {
+      window.location.href = googleChromeScheme;
+      setTimeout(() => {
+        window.location.href = chromeIntentUrl;
+      }, 300);
+    } catch (e) {
+      window.location.href = chromeIntentUrl;
+    }
   };
 
   const handleDirectLaunchApp = () => {
     if (onInstalledMarked) onInstalledMarked();
     launchInstalledApp();
-  };
-
-  const handleMarkAsAlreadyInstalled = () => {
-    if (onInstalledMarked) onInstalledMarked();
-    onClose();
   };
 
   const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
@@ -133,20 +143,13 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 pt-1">
+                <div className="pt-1">
                   <button
                     onClick={handleDirectLaunchApp}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-sm active:scale-95 cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-sm active:scale-95 cursor-pointer"
                   >
-                    <Smartphone className="w-3.5 h-3.5" />
+                    <Smartphone className="w-4 h-4" />
                     <span>Tenta apertura App</span>
-                  </button>
-                  <button
-                    onClick={handleMarkAsAlreadyInstalled}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-200 font-semibold text-xs transition hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer"
-                  >
-                    <Check className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>L'ho già installata</span>
                   </button>
                 </div>
               </div>
@@ -158,13 +161,13 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
                 </h4>
                 <ol className="space-y-2.5 list-decimal list-inside text-xs leading-relaxed">
                   <li>
-                    <strong>Copia il link</strong> dell'app premendo il pulsante arancione in basso.
-                  </li>
-                  <li>
-                    <strong>Apri Google Chrome o Edge</strong> e incolla il link nella barra degli indirizzi.
+                    Tocca il pulsante arancione in basso <strong>&ldquo;Apri in Chrome per procedere all'installazione&rdquo;</strong>.
                   </li>
                   <li>
                     In Chrome comparirà l'opzione ufficiale per installare con un tocco la <strong>vera App ufficiale</strong> con lettura offline e notifiche push attive.
+                  </li>
+                  <li>
+                    In alternativa puoi copiare il link per aprirlo manualmente in Chrome o Edge.
                   </li>
                 </ol>
               </div>
@@ -237,39 +240,41 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
         </div>
 
         {/* 3. FIXED FOOTER: Buttons are ALWAYS visible and clickable */}
-        <div className="shrink-0 px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 flex flex-col gap-2">
+        <div className="shrink-0 px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 flex flex-col gap-2.5">
           {mode === 'unsupported' && (
             <>
+              {/* Pulsante primario evidenziato: Apri in Chrome */}
+              {isAndroid && (
+                <button
+                  onClick={handleOpenChromeForInstall}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-orange-600 hover:bg-orange-700 active:scale-95 py-2.5 sm:py-3 px-4 text-xs sm:text-sm font-bold text-white transition shadow-md shadow-orange-600/20 cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 shrink-0" />
+                  <span>Apri in Chrome per procedere all'installazione</span>
+                </button>
+              )}
+
+              {/* Pulsante secondario: Copia link */}
               <button
                 onClick={handleCopyLink}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-orange-600 hover:bg-orange-700 py-2.5 px-4 text-xs font-semibold text-white transition shadow-sm cursor-pointer active:scale-95"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 py-2.5 px-4 text-xs font-semibold text-slate-800 dark:text-slate-200 transition cursor-pointer active:scale-95"
               >
                 {copiedLink ? (
                   <>
-                    <Check className="w-4 h-4 text-emerald-300" />
+                    <Check className="w-4 h-4 text-emerald-500" />
                     <span>Link copiato! Ora incollalo in Chrome</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-4 h-4" />
+                    <Copy className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                     <span>Copia link per Chrome o Edge</span>
                   </>
                 )}
               </button>
 
-              {isAndroid && (
-                <button
-                  onClick={handleOpenChromeForInstall}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 py-2 px-4 text-xs font-semibold text-slate-800 dark:text-slate-200 transition cursor-pointer"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Apri in Chrome per procedere all'installazione</span>
-                </button>
-              )}
-
               <button
                 onClick={onClose}
-                className="w-full py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium transition cursor-pointer"
+                className="w-full py-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 text-xs font-medium transition cursor-pointer"
               >
                 Chiudi
               </button>

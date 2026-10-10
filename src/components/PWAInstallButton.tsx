@@ -23,7 +23,7 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
     return (
       <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 dark:text-emerald-400 rounded-xl border border-emerald-200 dark:border-emerald-800">
         <Check className="w-3.5 h-3.5" />
-        <span>PWA Attiva</span>
+        <span>App Attiva</span>
       </div>
     );
   }
