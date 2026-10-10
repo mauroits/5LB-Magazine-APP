@@ -9,8 +9,7 @@ import {
   Copy,
   ExternalLink,
   Smartphone,
-  ArrowRight,
-  Sparkles
+  ArrowRight
 } from 'lucide-react';
 import { launchInstalledApp, setAppInstalledOnDevice } from '../utils/pwaLauncher';
 
@@ -39,7 +38,8 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
-  const handleOpenChromeAndroid = () => {
+  const handleOpenChromeForInstall = () => {
+    // Only used when a user in Opera/Firefox explicitly wants to open Chrome to install the PWA
     const intentUrl = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;end`;
     window.location.href = intentUrl;
   };
@@ -48,10 +48,10 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
     setAppInstalledOnDevice(true);
     if (onInstalledMarked) onInstalledMarked();
     launchInstalledApp();
-    onClose();
   };
 
   const handleMarkAsAlreadyInstalled = () => {
+    // Memorizza lo stato e chiude semplicemente il popup senza rimandare a Chrome o loopare
     setAppInstalledOnDevice(true);
     if (onInstalledMarked) onInstalledMarked();
     onClose();
@@ -89,7 +89,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
               </div>
             )}
             {mode === 'launch' && (
-              <div className="p-2 rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950/70 dark:text-blue-400 shrink-0">
+              <div className="p-2 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-400 shrink-0">
                 <Smartphone className="w-5 h-5" />
               </div>
             )}
@@ -100,7 +100,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
             >
               {mode === 'unsupported' && `Installazione da ${browserName || 'questo browser'}`}
               {mode === 'ios' && 'Installa su iPhone / iPad'}
-              {mode === 'launch' && 'Apri l’App 5LB Magazine'}
+              {mode === 'launch' && 'App 5LB Magazine'}
             </h3>
           </div>
 
@@ -119,45 +119,55 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
             <>
               {/* Highlight Box */}
               <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs leading-relaxed">
-                <strong>Attenzione:</strong> Questo browser ({browserName || 'il browser attuale'}) non supporta l'installazione nativa delle PWA. L'opzione standard &ldquo;Aggiungi a schermata iniziale&rdquo; in questo browser crea solo un <em>semplice preferito/collegamento web</em> privo di avvio autonomo a schermo intero, consultazione offline e notifiche push.
+                <strong>Nota:</strong> Questo browser ({browserName || 'il browser attuale'}) non supporta l'installazione delle Progressive Web App (PWA). L'opzione standard &ldquo;Aggiungi a schermata iniziale&rdquo; in questo browser crea solo un <em>semplice preferito web</em> privo di avvio autonomo a schermo intero, consultazione offline e notifiche push.
               </div>
 
-              {/* Already installed quick action */}
-              <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <h4 className="font-bold text-blue-950 dark:text-blue-200 text-xs sm:text-sm">
-                    Hai già installato l'app sul dispositivo?
-                  </h4>
-                  <p className="text-[11px] text-blue-800 dark:text-blue-300 mt-0.5">
-                    Aprila subito senza doverla reinstallare in questo browser.
-                  </p>
+              {/* Se l'utente ha già installato l'app sul dispositivo */}
+              <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 space-y-2.5">
+                <div className="flex items-start gap-2.5">
+                  <Smartphone className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-bold text-blue-950 dark:text-blue-200 text-xs sm:text-sm">
+                      Hai già installato l'app sul telefono?
+                    </h4>
+                    <p className="text-xs text-blue-800 dark:text-blue-300 mt-1 leading-relaxed">
+                      Per aprire la vera app a schermo intero, tocca direttamente l'icona <strong>5LB Mag</strong> nella schermata Home o nel cassetto delle applicazioni del tuo dispositivo.
+                    </p>
+                  </div>
                 </div>
-                <button
-                  onClick={handleDirectLaunchApp}
-                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center gap-1.5"
-                >
-                  <Smartphone className="w-3.5 h-3.5" />
-                  <span>Apri l'app</span>
-                </button>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={handleDirectLaunchApp}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-sm active:scale-95 cursor-pointer"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Tenta apertura App</span>
+                  </button>
+                  <button
+                    onClick={handleMarkAsAlreadyInstalled}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-200 font-semibold text-xs transition hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>L'ho già installata</span>
+                  </button>
+                </div>
               </div>
 
+              {/* Se invece non è ancora installata */}
               <div>
                 <h4 className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm mb-2">
-                  Procedura corretta per installare la vera App:
+                  Se non l'hai ancora installata:
                 </h4>
                 <ol className="space-y-2.5 list-decimal list-inside text-xs leading-relaxed">
                   <li>
                     <strong>Copia il link</strong> dell'app premendo il pulsante arancione in basso.
                   </li>
                   <li>
-                    <strong>Apri un browser pienamente compatibile:</strong>
-                    <ul className="list-disc list-inside pl-4 mt-1.5 space-y-1 text-slate-500 dark:text-slate-400">
-                      <li>Su <strong>Android, PC o Mac</strong>: usa <strong>Google Chrome</strong> (consigliato) oppure <strong>Microsoft Edge</strong>.</li>
-                      <li>Su <strong>iPhone o iPad</strong>: usa <strong>Safari</strong> (Condividi ⎋ &rarr; Aggiungi a schermata Home).</li>
-                    </ul>
+                    <strong>Apri Google Chrome o Edge</strong> e incolla il link nella barra degli indirizzi.
                   </li>
                   <li>
-                    Nel browser compatibile comparirà il pulsante per installare con un tocco la <strong>vera App ufficiale</strong> con lettura offline e notifiche push attive.
+                    In Chrome comparirà l'opzione ufficiale per installare con un tocco la <strong>vera App ufficiale</strong> con lettura offline e notifiche push attive.
                   </li>
                 </ol>
               </div>
@@ -167,26 +177,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
           {mode === 'ios' && (
             <>
               <div className="p-3.5 rounded-2xl bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 text-orange-900 dark:text-orange-200 text-xs leading-relaxed">
-                Su iOS (iPhone e iPad) l'installazione è gestita dal menu nativo di condivisione di Apple Safari.
-              </div>
-
-              {/* Already installed quick action */}
-              <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <h4 className="font-bold text-blue-950 dark:text-blue-200 text-xs">
-                    L'hai già aggiunta alla Home?
-                  </h4>
-                  <p className="text-[11px] text-blue-800 dark:text-blue-300 mt-0.5">
-                    Aprila direttamente dall'icona sul tuo iPhone o tocca qui.
-                  </p>
-                </div>
-                <button
-                  onClick={handleDirectLaunchApp}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center gap-1"
-                >
-                  <Smartphone className="w-3.5 h-3.5" />
-                  <span>Apri</span>
-                </button>
+                Su iPhone e iPad l'installazione viene eseguita tramite Safari di Apple:
               </div>
 
               <div className="space-y-3.5 pt-1">
@@ -195,7 +186,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
                     1
                   </span>
                   <p className="text-xs sm:text-sm">
-                    Tocca il pulsante <strong className="text-slate-900 dark:text-white">Condividi</strong> (l'icona con il quadrato e la freccia verso l'alto ⎋) nella barra inferiore o superiore di Safari.
+                    Tocca il pulsante <strong className="text-slate-900 dark:text-white">Condividi</strong> (icona del quadrato con la freccia verso l'alto ⎋) nella barra di Safari.
                   </p>
                 </div>
 
@@ -221,16 +212,29 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
           )}
 
           {mode === 'launch' && (
-            <div className="space-y-3 text-center py-2">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-300 flex items-center justify-center shadow-inner">
+            <div className="space-y-4 py-2">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300 flex items-center justify-center shadow-inner">
                 <Smartphone className="w-7 h-7" />
               </div>
-              <h4 className="text-base font-bold text-slate-900 dark:text-white">
-                App 5LB Magazine installata
-              </h4>
-              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed max-w-sm mx-auto">
-                Hai già l'applicazione installata su questo dispositivo. Puoi avviarla direttamente a schermo intero con un tocco.
-              </p>
+
+              <div className="text-center space-y-1.5">
+                <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                  App 5LB Magazine installata sul dispositivo
+                </h4>
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed max-w-sm mx-auto">
+                  L'applicazione è presente sul tuo dispositivo. Per usufruire dell'esperienza completa a schermo intero e con notifiche, aprila direttamente dalla schermata Home.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 space-y-2">
+                <p>
+                  <strong>Come aprirla:</strong>
+                </p>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>Tocca l'icona con il logo <strong>5LB Mag</strong> sulla tua schermata Home.</li>
+                  <li>Se sei su Android, puoi anche premere il pulsante qui sotto per richiedere al sistema di aprire l'applicazione.</li>
+                </ul>
+              </div>
             </div>
           )}
         </div>
@@ -258,41 +262,25 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
 
               {isAndroid && (
                 <button
-                  onClick={handleOpenChromeAndroid}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 py-2.5 px-4 text-xs font-semibold text-white transition shadow-sm cursor-pointer active:scale-95"
+                  onClick={handleOpenChromeForInstall}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 py-2 px-4 text-xs font-semibold text-slate-800 dark:text-slate-200 transition cursor-pointer"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  <span>Apri direttamente con Google Chrome</span>
+                  <span>Apri in Chrome per procedere all'installazione</span>
                 </button>
               )}
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleMarkAsAlreadyInstalled}
-                  className="flex-1 py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium transition cursor-pointer"
-                >
-                  L'ho già installata
-                </button>
-                <button
-                  onClick={onClose}
-                  className="flex-1 py-2 px-3 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-200 text-xs font-medium transition cursor-pointer"
-                >
-                  Chiudi
-                </button>
-              </div>
+              <button
+                onClick={onClose}
+                className="w-full py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium transition cursor-pointer"
+              >
+                Chiudi
+              </button>
             </>
           )}
 
           {mode === 'ios' && (
             <>
-              <button
-                onClick={handleDirectLaunchApp}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 py-2.5 text-xs font-semibold text-white transition shadow-sm cursor-pointer active:scale-95"
-              >
-                <Smartphone className="w-4 h-4" />
-                <span>Apri l'app installata</span>
-              </button>
-
               <button
                 onClick={onClose}
                 className="w-full rounded-xl bg-orange-600 hover:bg-orange-700 py-2.5 text-xs font-semibold text-white transition shadow-sm cursor-pointer active:scale-95"
@@ -306,11 +294,10 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
             <>
               <button
                 onClick={handleDirectLaunchApp}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-2.5 text-xs font-semibold text-white transition shadow-md cursor-pointer active:scale-95"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 py-2.5 text-xs font-semibold text-white transition shadow-sm cursor-pointer active:scale-95"
               >
                 <Smartphone className="w-4 h-4" />
-                <span>Apri subito l'App</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>Richiedi apertura all'app di sistema</span>
               </button>
 
               <button

@@ -44,7 +44,6 @@ import {
 } from './services/notificationService';
 import { NAV_SECTIONS, GOOGLE_NOTEBOOK_URL } from './config/navigation';
 import { openNotebookWithPriority } from './utils/notebookLauncher';
-import { attemptAutoLaunchOnLoad } from './utils/pwaLauncher';
 import { useTheme } from './hooks/useTheme';
 import { Bell, ArrowRight, X } from 'lucide-react';
 
@@ -161,7 +160,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    attemptAutoLaunchOnLoad();
     initAnalyticsWithSavedConsent();
 
     // Mostra il banner del consenso prima dell'uso se l'utente non ha ancora espresso una scelta
