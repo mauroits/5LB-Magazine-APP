@@ -14,12 +14,18 @@ import { NotebookModal } from './components/NotebookModal';
 import { ExternalLinkModal } from './components/ExternalLinkModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
+import { CookieConsentModal } from './components/CookieConsentModal';
 import {
   BloggerPost,
   ActiveFilter,
   NavItem,
   NotificationItem
 } from './types';
+import {
+  initAnalyticsWithSavedConsent,
+  getStoredCookieConsent,
+  trackEvent
+} from './services/analytics';
 import { postMatchesExactPhrase } from './utils/searchUtils';
 import {
   fetchBloggerPosts,
@@ -38,6 +44,7 @@ import {
 } from './services/notificationService';
 import { NAV_SECTIONS, GOOGLE_NOTEBOOK_URL } from './config/navigation';
 import { openNotebookWithPriority } from './utils/notebookLauncher';
+import { attemptAutoLaunchOnLoad } from './utils/pwaLauncher';
 import { useTheme } from './hooks/useTheme';
 import { Bell, ArrowRight, X } from 'lucide-react';
 
@@ -80,6 +87,8 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isNotebookOpen, setIsNotebookOpen] = useState(false);
   const [selectedExternalLink, setSelectedExternalLink] = useState<NavItem | null>(null);
+  const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
+  const [isCookieManageMode, setIsCookieManageMode] = useState(false);
 
   // Active in-app Toast Notification
   const [toastNotification, setToastNotification] = useState<NotificationItem | null>(null);
@@ -152,6 +161,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    attemptAutoLaunchOnLoad();
+    initAnalyticsWithSavedConsent();
+
+    // Mostra il banner del consenso prima dell'uso se l'utente non ha ancora espresso una scelta
+    const savedConsent = getStoredCookieConsent();
+    if (!savedConsent || !savedConsent.hasChosen) {
+      setIsCookieModalOpen(true);
+      setIsCookieManageMode(false);
+    }
+
     loadFeed();
 
     // Background polling for push updates every 75 seconds
@@ -442,6 +461,11 @@ export default function App() {
     });
 
     setSelectedPost({ ...post, isRead: true });
+    trackEvent('select_content', {
+      content_type: 'article',
+      item_id: post.id,
+      item_name: post.title,
+    });
   };
 
   const handleToggleFavorite = (postId: string, e?: React.MouseEvent) => {
@@ -451,6 +475,11 @@ export default function App() {
     if (isNowFav) currentFavs.add(postId);
     else currentFavs.delete(postId);
     saveFavoritePostIds(currentFavs);
+
+    trackEvent('favorite_article', {
+      item_id: postId,
+      is_favorite: isNowFav,
+    });
 
     setPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, isFavorite: isNowFav } : p))
@@ -528,6 +557,7 @@ export default function App() {
     const trimmed = query.trim();
     if (!trimmed || isSearchingOnline) return;
     setIsSearchingOnline(true);
+    trackEvent('search', { search_term: trimmed });
     try {
       const res = await searchBloggerArchive(trimmed, 30);
       if (res.posts.length > 0) {
@@ -632,6 +662,10 @@ export default function App() {
           onOpenNotebook={handleOpenNotebook}
           onOpenTelegram={handleOpenTelegram}
           onOpenInfo={() => setIsInfoOpen(true)}
+          onOpenCookieSettings={() => {
+            setIsCookieManageMode(true);
+            setIsCookieModalOpen(true);
+          }}
           unreadCount={unreadCount}
           totalCount={posts.length}
           favoritesCount={favoritesCount}
@@ -726,6 +760,10 @@ export default function App() {
         onClose={() => setIsInfoOpen(false)}
         onRefreshFeed={() => loadFeed(true)}
         isRefreshing={isRefreshing}
+        onOpenCookieSettings={() => {
+          setIsCookieManageMode(true);
+          setIsCookieModalOpen(true);
+        }}
       />
 
       <NotificationCenterModal
@@ -754,6 +792,13 @@ export default function App() {
 
       {/* Proactive PWA Install Banner */}
       <PWAInstallBanner />
+
+      {/* Cookie Consent Modal / Banner (Informativa sui Cookie) */}
+      <CookieConsentModal
+        isOpen={isCookieModalOpen}
+        onClose={() => setIsCookieModalOpen(false)}
+        isManageMode={isCookieManageMode}
+      />
     </div>
   );
 }

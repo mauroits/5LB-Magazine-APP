@@ -43,7 +43,7 @@ export const ExternalLinkModal: React.FC<ExternalLinkModalProps> = ({
         }`}
       >
         {/* Modal Top Bar */}
-        <div className="bg-[#0e1838] px-4 py-3 text-white flex items-center justify-between gap-3 shadow-md">
+        <div className="bg-[#0e1838] px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] text-white flex items-center justify-between gap-3 shadow-md">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-1.5 rounded-lg bg-orange-500/20 text-orange-400 border border-orange-500/30">
               <Globe className="w-5 h-5" />

@@ -236,7 +236,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
 
       {/* AI banner highlight (Dismissible) */}
       {!isAiBannerDismissed && (
-        <div className="relative mb-6 rounded-2xl bg-gradient-to-r from-blue-900/40 via-indigo-900/30 to-purple-900/40 border border-blue-500/20 p-4 pr-11 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+        <div className="relative mb-6 rounded-2xl bg-gradient-to-r from-blue-900/40 via-indigo-900/30 to-purple-900/40 border border-blue-500/20 p-4 pr-11 flex flex-col gap-3 shadow-xs">
           {/* Dismiss button */}
           <button
             onClick={handleDismissAiBanner}
@@ -246,28 +246,34 @@ export const ArticleList: React.FC<ArticleListProps> = ({
             <X className="w-4 h-4" />
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-md">
-              <Sparkles className="w-5 h-5 text-amber-300" />
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                {AI_BANNER_CONFIG.title}
-                <span className="text-[10px] uppercase font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 px-2 py-0.5 rounded-full">
-                  {AI_BANNER_CONFIG.badge}
-                </span>
-              </h4>
-              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-                {AI_BANNER_CONFIG.description}
-              </p>
-            </div>
+          {/* Scritta 'Ricerca semantica' centrata */}
+          <div className="w-full flex justify-center">
+            <span className="text-[10px] uppercase font-bold tracking-wider bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 px-3 py-0.5 rounded-full inline-flex items-center justify-center text-center shadow-xs">
+              {AI_BANNER_CONFIG.badge}
+            </span>
           </div>
-          <button
-            onClick={onOpenNotebook}
-            className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs shadow-sm transition active:scale-95 shrink-0 self-end sm:self-auto cursor-pointer"
-          >
-            {AI_BANNER_CONFIG.buttonText}
-          </button>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-md">
+                <Sparkles className="w-5 h-5 text-amber-300" />
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {AI_BANNER_CONFIG.title}
+                </h4>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                  {AI_BANNER_CONFIG.description}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onOpenNotebook}
+              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs shadow-sm transition active:scale-95 shrink-0 self-end sm:self-auto cursor-pointer"
+            >
+              {AI_BANNER_CONFIG.buttonText}
+            </button>
+          </div>
         </div>
       )}
 

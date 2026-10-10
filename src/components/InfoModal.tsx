@@ -12,7 +12,8 @@ import {
   Bell,
   WifiOff,
   RefreshCw,
-  Check
+  Check,
+  Cookie
 } from 'lucide-react';
 import { Logo5LB } from './Logo5LB';
 import { INFO_PAGE_CONTENT } from '../config/infoContent';
@@ -22,6 +23,7 @@ interface InfoModalProps {
   onClose: () => void;
   onRefreshFeed?: () => void;
   isRefreshing?: boolean;
+  onOpenCookieSettings?: () => void;
 }
 
 export const InfoModal: React.FC<InfoModalProps> = ({
@@ -29,6 +31,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({
   onClose,
   onRefreshFeed,
   isRefreshing = false,
+  onOpenCookieSettings,
 }) => {
   const [activeTab, setActiveTab] = useState<'funzioni' | 'aggiornamenti' | 'contatti' | 'privacy'>('funzioni');
   const [refreshDone, setRefreshDone] = useState(false);
@@ -52,7 +55,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/75 backdrop-blur-xs">
       <div className="relative w-full h-full sm:h-[90vh] sm:max-w-3xl bg-white dark:bg-slate-900 shadow-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
         {/* Header with Dark Navy Brand Style */}
-        <div className="bg-[#0e1838] px-5 py-4 text-white flex items-center justify-between gap-3 shadow-md shrink-0">
+        <div className="bg-[#0e1838] px-5 py-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] text-white flex items-center justify-between gap-3 shadow-md shrink-0">
           <div className="flex items-center gap-3">
             <Logo5LB className="h-7 sm:h-8" />
             <div className="h-6 w-px bg-white/20 hidden sm:block" />
@@ -255,6 +258,29 @@ export const InfoModal: React.FC<InfoModalProps> = ({
                     <p className="text-xs leading-relaxed">{pt.text}</p>
                   </div>
                 ))}
+
+                <div className="p-4 rounded-2xl bg-orange-50/70 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <Cookie className="w-4 h-4 text-orange-500" />
+                      <span>Preferenze Cookie & Consenso</span>
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                      Puoi rivedere o modificare la tua scelta relativa ai cookie analitici (Google Analytics) in qualsiasi momento.
+                    </p>
+                  </div>
+                  {onOpenCookieSettings && (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onOpenCookieSettings();
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold shrink-0 transition active:scale-95 cursor-pointer shadow-xs"
+                    >
+                      Gestisci Cookie
+                    </button>
+                  )}
+                </div>
 
                 <div className="pt-2">
                   <a

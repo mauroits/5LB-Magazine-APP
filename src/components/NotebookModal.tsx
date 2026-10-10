@@ -49,7 +49,7 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ isOpen, onClose })
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/75 backdrop-blur-xs animate-in fade-in">
       <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95">
         {/* Header */}
-        <div className="bg-[#0e1838] px-5 py-4 text-white flex items-center justify-between gap-3 shadow-md">
+        <div className="bg-[#0e1838] px-5 py-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] text-white flex items-center justify-between gap-3 shadow-md">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shrink-0">
               <IconNotebookLM className="w-6 h-6" />

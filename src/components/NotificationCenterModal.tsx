@@ -90,7 +90,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/70 backdrop-blur-xs">
       <div className="relative w-full h-full sm:h-auto sm:max-h-[85vh] sm:max-w-xl bg-white dark:bg-slate-900 shadow-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
         {/* Header */}
-        <div className="bg-[#0e1838] px-5 py-4 text-white flex items-center justify-between gap-3 shadow-md shrink-0">
+        <div className="bg-[#0e1838] px-5 py-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] text-white flex items-center justify-between gap-3 shadow-md shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
               <Bell className="w-5 h-5" />

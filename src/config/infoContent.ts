@@ -88,6 +88,10 @@ export const INFO_PAGE_CONTENT = {
         text: 'L’integrazione di Google Gemini si appoggia direttamente all’infrastruttura di Google. Quando utilizzi il tuo account Google all’interno del notebook, l’autenticazione e la gestione delle credenziali avvengono direttamente sui server sicuri di Google nel rispetto delle policy di Google.',
       },
       {
+        title: 'Cookie & Analytics',
+        text: "Utilizziamo cookie tecnici essenziali per far funzionare l'App e cookie analitici (Google Analytics) previa esplicita scelta dell'utente per comprendere come viene utilizzata l'applicazione al solo scopo di migliorarne le prestazioni. Non utilizziamo cookie di profilazione né pubblicitari. Puoi modificare le tue preferenze in qualsiasi momento.",
+      },
+      {
         title: 'Notifiche Push',
         text: 'Le notifiche push avvengono mediante le API standard del browser (Web Notifications API) previa esplicita autorizzazione dell’utente, senza richiedere la raccolta di numeri telefonici o indirizzi email.',
       },

@@ -20,6 +20,36 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+
+    <!-- Google Consent Mode v2 & Google Analytics (gtag.js) G-F8YBSNXCDW -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+
+      // Legge il consenso memorizzato o imposta default negato
+      var savedConsent = null;
+      try {
+        var raw = localStorage.getItem('5lb_cookie_consent_v1');
+        if (raw) savedConsent = JSON.parse(raw);
+      } catch(e) {}
+
+      var analyticsState = (savedConsent && savedConsent.analytics === true) ? 'granted' : 'denied';
+
+      gtag('consent', 'default', {
+        'analytics_storage': analyticsState,
+        'ad_storage': 'denied',
+        'ad_user_data': 'denied',
+        'ad_personalization': 'denied',
+        'wait_for_update': 500
+      });
+
+      gtag('js', new Date());
+      gtag('config', 'G-F8YBSNXCDW', {
+        'anonymize_ip': true,
+        'send_page_view': analyticsState === 'granted'
+      });
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-F8YBSNXCDW"></script>
   </head>
   <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased selection:bg-orange-500 selection:text-white">
     <div id="root"></div>

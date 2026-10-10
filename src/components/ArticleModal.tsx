@@ -276,7 +276,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs">
       <div className="relative w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-3xl bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
         {/* Sticky Reader Toolbar */}
-        <div className="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+        <div className="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
           {/* Left: Close button */}
           <button
             onClick={() => {
@@ -519,9 +519,19 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
           {/* Article HTML Content formatted with custom typography */}
           <div
-            className="prose prose-slate dark:prose-invert max-w-none text-slate-800 dark:text-slate-200 leading-relaxed space-y-4 text-justify [text-align:justify] hyphens-auto [&_p]:text-justify [&_p]:[text-align:justify] [&_p]:hyphens-auto [&>p]:mb-4 [&>h2]:text-xl [&>h2]:font-bold [&>h2]:mt-6 [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>blockquote]:border-l-4 [&>blockquote]:border-orange-500 [&>blockquote]:pl-4 [&>blockquote]:italic [&>img]:rounded-2xl [&>img]:max-w-full [&>img]:h-auto [&>img]:my-4 [&>a]:text-orange-600 [&>a]:underline"
+            className="article-content max-w-none text-slate-800 dark:text-slate-200 leading-relaxed space-y-4 text-justify [text-align:justify] hyphens-auto [&_p]:text-justify [&_p]:[text-align:justify] [&_p]:hyphens-auto [&_p]:mb-4 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-6 [&_h3]:text-lg [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-4 [&_blockquote]:border-orange-500 [&_blockquote]:pl-4 [&_blockquote]:italic [&_img]:rounded-2xl [&_img]:max-w-full [&_img]:h-auto [&_img]:my-4 [&_a]:text-orange-600 dark:[&_a]:text-orange-400 [&_a]:underline [&_a]:font-medium hover:[&_a]:text-orange-700 dark:hover:[&_a]:text-orange-300"
             style={{ fontSize: `${fontSize}px`, textAlign: 'justify', hyphens: 'auto' }}
             dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+            onClick={(e) => {
+              const target = (e.target as HTMLElement).closest('a');
+              if (target) {
+                const href = target.getAttribute('href');
+                if (href && !href.startsWith('#')) {
+                  e.preventDefault();
+                  window.open(href, '_blank', 'noopener,noreferrer');
+                }
+              }
+            }}
           />
 
           {/* Original Source Link Banner */}

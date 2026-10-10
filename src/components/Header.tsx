@@ -26,7 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [showSearchInput, setShowSearchInput] = React.useState(false);
 
   return (
-    <header className="sticky top-0 z-30 bg-[#0e1838] text-white shadow-md border-b border-slate-800 select-none">
+    <header className="sticky top-0 z-30 bg-[#0e1838] text-white shadow-md border-b border-slate-800 select-none pt-[env(safe-area-inset-top,0px)]">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 h-15 flex items-center justify-between gap-2">
         {/* Left: Hamburger menu + Official 5LB Logo only */}
         <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">

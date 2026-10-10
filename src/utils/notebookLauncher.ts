@@ -1,10 +1,14 @@
 import { GOOGLE_NOTEBOOK_URL } from '../config/navigation';
 
 /**
- * Apre Google NotebookLM dando PRIORITÀ all'app installata sul dispositivo.
- * Se l'app non è installata (o su desktop/iOS senza app), apre la webview / finestra
- * funzionante del portale Google Notebook, evitando qualsiasi schermata grigia
- * o blocco X-Frame-Options tipico degli iframe non supportati da Google.
+ * Apre Google NotebookLM:
+ * - Su Android: forza l'apertura ESCLUSIVA nel Chrome di sistema integrato (package=com.android.chrome),
+ *   eliminando la finestra di dialogo del sistema "Apri con Chrome, Opera, ecc.".
+ *   Se l'app / PWA di NotebookLM è gestita da Chrome, si avvia direttamente; altrimenti si apre
+ *   nella sessione integrata di Chrome.
+ * - Su iOS: apre direttamente nel sistema integrato di iOS (Safari / WebKit In-App)
+ *   senza alcuna richiesta o conflitto.
+ * - Su Desktop / altri sistemi: apre una scheda/finestra dedicata senza blocchi iframe.
  */
 export function openNotebookWithPriority(): void {
   const url = GOOGLE_NOTEBOOK_URL;
@@ -12,12 +16,15 @@ export function openNotebookWithPriority(): void {
 
   const ua = navigator.userAgent || '';
   const isAndroid = /Android/i.test(ua);
+  const isIOS =
+    /iPhone|iPad|iPod/i.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
   if (isAndroid) {
-    // 1. Priorità all'app nativa / PWA installata su Android tramite Intent standard di Chrome.
-    // Se l'app Google Notebook (o WebAPK/PWA di NotebookLM) è presente, Android l'avvia direttamente.
-    // Se non è installata, il parametro S.browser_fallback_url avvia automaticamente la navigazione webview in Chrome.
-    const intentUrl = `intent://notebook.google.com/notebook/47913756-695d-4076-b64a-be74986cfdf8#Intent;scheme=https;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(url)};end;`;
+    // Intent Android esplicito con `package=com.android.chrome`:
+    // Questo vincola l'azione esclusivamente a Google Chrome (browser integrato di Android),
+    // impedendo al sistema operativo di mostrare il selettore "Apri con... Chrome, Opera, ecc.".
+    const chromeIntentUrl = `intent://notebook.google.com/notebook/47913756-695d-4076-b64a-be74986cfdf8#Intent;scheme=https;package=com.android.chrome;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(url)};end;`;
 
     let fallbackHandled = false;
     const triggerWebFallback = () => {
@@ -28,23 +35,30 @@ export function openNotebookWithPriority(): void {
       }
     };
 
-    // Avvio intent
+    // Avvio dell'intent mirato a Chrome tramite click sintetico e fallback su location.href
     try {
-      window.location.href = intentUrl;
+      const link = document.createElement('a');
+      link.href = chromeIntentUrl;
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch {
-      triggerWebFallback();
-      return;
+      try {
+        window.location.href = chromeIntentUrl;
+      } catch {
+        triggerWebFallback();
+        return;
+      }
     }
 
-    // Safety fallback: se dopo 1200ms la pagina corrente è ancora visibile
-    // (segno che nessuna app esterna ha preso il controllo), apriamo la webview funzionante
+    // Safety fallback: se Chrome non dovesse rispondere entro 1200ms
     const safetyTimer = window.setTimeout(() => {
       triggerWebFallback();
     }, 1200);
 
     const handleVisibility = () => {
       if (document.hidden) {
-        // L'app installata si è aperta correttamente e la schermata è andata in background
         clearTimeout(safetyTimer);
         document.removeEventListener('visibilitychange', handleVisibility);
       }
@@ -54,9 +68,18 @@ export function openNotebookWithPriority(): void {
     return;
   }
 
-  // iOS / Desktop:
-  // window.open con l'Universal Link di Google Notebook:
-  // - Su iOS, se l'app è installata la apre tramite Universal Links; altrimenti apre la pagina in Safari/Chrome.
-  // - Su Desktop, apre una finestra/scheda dedicata dove NotebookLM funziona perfettamente con l'account Google dell'utente.
+  if (isIOS) {
+    // Su iOS, apre direttamente nel browser integrato di sistema (Safari / In-App Safari)
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return;
+  }
+
+  // Desktop / altri sistemi:
   window.open(url, '_blank', 'noopener,noreferrer');
 }

@@ -42,6 +42,18 @@ export default defineConfig(() => {
               purpose: 'maskable',
             },
           ],
+          protocol_handlers: [
+            {
+              protocol: 'web+magazine5lb',
+              url: '/?launch_pwa=1#%s',
+            },
+          ],
+          related_applications: [
+            {
+              platform: 'webapp',
+              url: '/manifest.webmanifest',
+            },
+          ],
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],

@@ -20,6 +20,7 @@ import {
   ExternalLink,
   Info,
   Sparkles,
+  Cookie,
   X
 } from 'lucide-react';
 import { NavItem, NavSection, ActiveFilter } from '../types';
@@ -53,6 +54,7 @@ interface SidebarProps {
   onOpenNotebook: () => void;
   onOpenTelegram: () => void;
   onOpenInfo: () => void;
+  onOpenCookieSettings?: () => void;
   unreadCount: number;
   totalCount: number;
   favoritesCount: number;
@@ -72,6 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenNotebook,
   onOpenTelegram,
   onOpenInfo,
+  onOpenCookieSettings,
   unreadCount,
   totalCount,
   favoritesCount,
@@ -242,7 +245,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }`}
       >
         {/* Drawer Header (Official 5LB Logo from user image) */}
-        <div className="relative bg-[#0b1226] px-5 pt-6 pb-5 text-white shadow-md">
+        <div className="relative bg-[#0b1226] px-5 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] pb-5 text-white shadow-md">
           <div className="flex items-center justify-between">
             {/* Official Logo rendered clean without redundant text */}
             <Logo5LB className="h-8 sm:h-9" />
@@ -414,18 +417,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <PWAInstallButton />
         </div>
 
-        {/* Bottom Drawer Footer: Info page link + Theme switch */}
-        <div className="p-2.5 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 gap-2">
-          <button
-            onClick={() => {
-              onOpenInfo();
-              onClose();
-            }}
-            className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition cursor-pointer truncate"
-          >
-            <Info className="w-4 h-4 text-orange-500 shrink-0" />
-            <span className="truncate">Informazioni & Privacy</span>
-          </button>
+        {/* Bottom Drawer Footer: Info page link + Cookie settings + Theme switch */}
+        <div className="p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom,0px))] bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 gap-1.5">
+          <div className="flex items-center gap-1 min-w-0">
+            <button
+              onClick={() => {
+                onOpenInfo();
+                onClose();
+              }}
+              className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition cursor-pointer truncate"
+              title="Informazioni sull'App e Privacy"
+            >
+              <Info className="w-4 h-4 text-orange-500 shrink-0" />
+              <span className="truncate">Info & Privacy</span>
+            </button>
+
+            {onOpenCookieSettings && (
+              <button
+                onClick={() => {
+                  onOpenCookieSettings();
+                  onClose();
+                }}
+                className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition cursor-pointer truncate"
+                title="Gestisci preferenze cookie"
+              >
+                <Cookie className="w-4 h-4 text-amber-500 shrink-0" />
+                <span className="truncate">Cookie</span>
+              </button>
+            )}
+          </div>
 
           <button
             onClick={onCycleTheme}

@@ -405,28 +405,19 @@ export function computeCategoryCounts(posts: BloggerPost[]): Record<string, numb
   return counts;
 }
 
-// Format relative date Italian style e.g. "5 gg fa", "28 Set", "Oggi"
+// Format date Italian style with day, month, and year e.g. "28 Set 2024"
 export function formatItalianDate(dateStr: string): string {
   try {
     const d = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) {
-      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-      if (diffHours <= 1) return 'Poco fa';
-      return `${diffHours} ore fa`;
-    }
-    if (diffDays === 1) return 'Ieri';
-    if (diffDays < 7) return `${diffDays} gg fa`;
+    if (isNaN(d.getTime())) return dateStr;
 
     const months = [
       'Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu',
       'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'
     ];
-    return `${d.getDate()} ${months[d.getMonth()]}`;
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
   } catch (e) {
     return dateStr;
   }
 }
+
