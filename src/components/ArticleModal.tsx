@@ -26,75 +26,143 @@ import { formatItalianDate } from '../services/bloggerFeed';
 import { highlightHtmlContent } from '../utils/searchUtils';
 import { trackEvent } from '../services/analytics';
 
-export function parseArticleParagraphs(title: string, contentHtml: string): string[] {
-  const result: string[] = [];
-  const cleanTitle = (title || '').trim();
-  if (cleanTitle) {
-    result.push(cleanTitle);
-  }
+export interface ArticleChunk {
+  index: number;
+  text: string;
+  wordCount: number;
+}
 
-  if (!contentHtml) return result;
+/**
+ * Robust extraction of the entire article body from Blogger HTML.
+ * Strips script, style, ads and media while preserving natural line breaks for block elements.
+ * Generates uniform universal chunks (~40-50 words per chunk) aligned to natural sentence boundaries.
+ * Prevents isolated subtitles, bullet items, or parentheses from creating erratic micro-jumps.
+ */
+export function extractArticleChunks(
+  title: string,
+  contentHtml: string,
+  targetWordsPerChunk = 45
+): ArticleChunk[] {
+  let fullText = '';
+  const cleanTitle = (title || '').replace(/\s+/g, ' ').trim();
 
   try {
     if (typeof DOMParser !== 'undefined') {
       const parser = new DOMParser();
-      const doc = parser.parseFromString(contentHtml, 'text/html');
+      const doc = parser.parseFromString(contentHtml || '', 'text/html');
 
-      // Strip unwanted elements
-      doc.querySelectorAll('script, style, iframe, noscript, svg, audio, video').forEach((el) => el.remove());
+      // Strip non-content and embed elements
+      doc
+        .querySelectorAll('script, style, iframe, noscript, svg, audio, video, img, figure, button, form')
+        .forEach((el) => el.remove());
 
-      const blocks = doc.querySelectorAll('p, h2, h3, h4, li, blockquote');
-      blocks.forEach((el) => {
-        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-        if (text && text.length > 5) {
-          if (text.length > 550) {
-            // Split long paragraphs by sentence boundaries for smooth playback
-            const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
-            let current = '';
-            for (const s of sentences) {
-              if ((current + ' ' + s).length <= 380) {
-                current = current ? `${current} ${s.trim()}` : s.trim();
-              } else {
-                if (current.trim()) result.push(current.trim());
-                current = s.trim();
-              }
-            }
-            if (current.trim()) result.push(current.trim());
+      // Add line breaks for block-level elements so headings, paragraphs, and list items separate naturally
+      const blockTags = [
+        'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote', 'tr', 'section', 'article', 'br', 'hr',
+      ];
+      blockTags.forEach((tag) => {
+        doc.querySelectorAll(tag).forEach((el) => {
+          if (tag === 'br' || tag === 'hr') {
+            el.replaceWith(document.createTextNode('\n'));
           } else {
-            result.push(text);
+            el.after(document.createTextNode('\n'));
           }
-        }
+        });
       });
-    }
 
-    if (result.length <= 1) {
-      const stripped = contentHtml
-        .replace(/<[^>]+>/g, ' ')
+      const rawText = doc.body.textContent || '';
+      const cleanBody = rawText
+        .replace(/\r\n/g, '\n')
+        .replace(/\t/g, ' ')
         .replace(/&nbsp;/g, ' ')
         .replace(/&amp;/g, '&')
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
-        .replace(/\s+/g, ' ')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n\s*\n+/g, '\n')
         .trim();
 
-      const sentences = stripped.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [stripped];
-      let current = '';
-      for (const s of sentences) {
-        if ((current + ' ' + s).length <= 320) {
-          current = current ? `${current} ${s.trim()}` : s.trim();
+      if (cleanTitle && cleanBody) {
+        if (cleanBody.toLowerCase().startsWith(cleanTitle.toLowerCase())) {
+          fullText = cleanBody;
         } else {
-          if (current.trim()) result.push(current.trim());
-          current = s.trim();
+          fullText = `${cleanTitle}.\n\n${cleanBody}`;
         }
+      } else {
+        fullText = cleanTitle || cleanBody;
       }
-      if (current.trim()) result.push(current.trim());
+    } else {
+      const raw = (title + '. ' + (contentHtml || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+      fullText = raw;
     }
   } catch {
-    const raw = (title + '. ' + contentHtml.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
-    if (raw) result.push(raw);
+    fullText = `${cleanTitle}. ${(contentHtml || '').replace(/<[^>]+>/g, ' ')}`.replace(/\s+/g, ' ').trim();
   }
 
-  return result.length > 0 ? result : [title];
+  if (!fullText.trim()) {
+    return cleanTitle
+      ? [{ index: 0, text: cleanTitle, wordCount: cleanTitle.split(/\s+/).filter(Boolean).length }]
+      : [];
+  }
+
+  // Tokenize by sentence boundaries (. ! ? \n)
+  const rawSentences = fullText.match(/[^.!?\n]+(?:[.!?]+|\n+|$)/g) || [fullText];
+  const chunkTexts: string[] = [];
+  let currentWords: string[] = [];
+
+  for (const raw of rawSentences) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    // If an extraordinarily long sentence exists (> 65 words), break it into smaller sub-clauses
+    if (words.length > 65) {
+      if (currentWords.length > 0) {
+        chunkTexts.push(currentWords.join(' '));
+        currentWords = [];
+      }
+      for (let i = 0; i < words.length; i += targetWordsPerChunk) {
+        chunkTexts.push(words.slice(i, i + targetWordsPerChunk).join(' '));
+      }
+      continue;
+    }
+
+    if (currentWords.length + words.length <= targetWordsPerChunk + 10) {
+      currentWords.push(...words);
+    } else {
+      if (currentWords.length >= 22) {
+        chunkTexts.push(currentWords.join(' '));
+        currentWords = [...words];
+      } else {
+        currentWords.push(...words);
+        chunkTexts.push(currentWords.join(' '));
+        currentWords = [];
+      }
+    }
+  }
+
+  if (currentWords.length > 0) {
+    chunkTexts.push(currentWords.join(' '));
+  }
+
+  const finalChunks = chunkTexts
+    .map((txt) => txt.trim())
+    .filter((txt) => txt.length > 0)
+    .map((text, index) => ({
+      index,
+      text,
+      wordCount: text.split(/\s+/).filter(Boolean).length,
+    }));
+
+  return finalChunks.length > 0
+    ? finalChunks
+    : [{ index: 0, text: cleanTitle || 'Testo articolo', wordCount: (cleanTitle || '').split(/\s+/).filter(Boolean).length || 1 }];
+}
+
+// Compatibility helper
+export function parseArticleParagraphs(title: string, contentHtml: string): string[] {
+  return extractArticleChunks(title, contentHtml).map((c) => c.text);
 }
 
 interface ArticleModalProps {
@@ -143,12 +211,12 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   // Speech & Background playback state and refs
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [currentParagraphIndex, setCurrentParagraphIndex] = useState<number>(0);
+  const [currentChunkIndex, setCurrentChunkIndex] = useState<number>(0);
   const [isLoadingAudio, setIsLoadingAudio] = useState<boolean>(false);
 
-  const paragraphs = useMemo(() => {
+  const chunks = useMemo(() => {
     if (!post) return [];
-    return parseArticleParagraphs(post.title, post.content);
+    return extractArticleChunks(post.title, post.content);
   }, [post?.title, post?.content]);
 
   // Audio elements & state refs
@@ -162,9 +230,12 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
   const isPlayingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false);
-  const currentParagraphIndexRef = useRef<number>(0);
-  const paragraphsRef = useRef<string[]>([]);
-  paragraphsRef.current = paragraphs;
+  const currentChunkIndexRef = useRef<number>(0);
+  const chunksRef = useRef<ArticleChunk[]>([]);
+  chunksRef.current = chunks;
+
+  const SILENT_WAV =
+    'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAP8A';
 
   // Screen Wake Lock API to prevent screen timeout while listening
   const requestWakeLock = useCallback(async () => {
@@ -190,16 +261,14 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const startSilentAudio = useCallback(() => {
     try {
       if (!silentAudioRef.current) {
-        const audio = new Audio(
-          'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YRAAAAAAAAAAAAAAAAAAAAAA'
-        );
+        const audio = new Audio(SILENT_WAV);
         audio.loop = true;
         audio.volume = 0.01;
         silentAudioRef.current = audio;
       }
       silentAudioRef.current.play().catch(() => {});
     } catch {}
-  }, []);
+  }, [SILENT_WAV]);
 
   const stopSilentAudio = useCallback(() => {
     if (silentAudioRef.current) {
@@ -232,8 +301,8 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     setIsSpeaking(false);
     setIsPaused(false);
     setIsLoadingAudio(false);
-    currentParagraphIndexRef.current = 0;
-    setCurrentParagraphIndex(0);
+    currentChunkIndexRef.current = 0;
+    setCurrentChunkIndex(0);
 
     stopCurrentPlaybackOnly();
     stopSilentAudio();
@@ -266,6 +335,27 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     };
   }, [post?.id, stopSpeech]);
 
+  // Pre-fetch first chunk in background as soon as article is opened
+  // This guarantees instant 0ms playback and user activation retention on Android!
+  useEffect(() => {
+    if (!chunks.length) return;
+    const chunk0 = chunks[0];
+    if (!chunk0 || audioBlobCacheRef.current.has(0)) return;
+
+    fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: chunk0.text, voice: 'Kore' }),
+    })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((b) => {
+        if (b) {
+          audioBlobCacheRef.current.set(0, URL.createObjectURL(b));
+        }
+      })
+      .catch(() => {});
+  }, [chunks]);
+
   const fallbackWebSpeech = useCallback((text: string, index: number) => {
     if (!isPlayingRef.current || !('speechSynthesis' in window)) return;
 
@@ -286,8 +376,8 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     utterance.onend = () => {
       if (isPlayingRef.current && !isPausedRef.current) {
         const next = index + 1;
-        if (next < paragraphsRef.current.length) {
-          playParagraph(next);
+        if (next < chunksRef.current.length) {
+          playChunk(next);
         } else {
           stopSpeech();
         }
@@ -298,8 +388,8 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       if (e.error === 'interrupted' || e.error === 'canceled') return;
       if (isPlayingRef.current && !isPausedRef.current) {
         const next = index + 1;
-        if (next < paragraphsRef.current.length) {
-          playParagraph(next);
+        if (next < chunksRef.current.length) {
+          playChunk(next);
         } else {
           stopSpeech();
         }
@@ -312,112 +402,156 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     window.speechSynthesis.speak(utterance);
   }, [startSilentAudio, stopSpeech]);
 
-  const playParagraph = useCallback(async (index: number) => {
-    if (!isPlayingRef.current) return;
-    const all = paragraphsRef.current;
-    if (index < 0 || index >= all.length) {
-      stopSpeech();
-      return;
-    }
+  const setupMediaSession = useCallback(
+    (articleTitle: string, chunkIdx: number, totalChunks: number) => {
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+        try {
+          const origin = typeof window !== 'undefined' ? window.location.origin : '';
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: articleTitle || '5LB Magazine',
+            artist: `5LB Magazine • Blocco ${chunkIdx + 1} di ${totalChunks}`,
+            album: 'magazine.5lb.eu',
+            artwork: [
+              { src: `${origin}/pwa-192x192.png`, sizes: '192x192', type: 'image/png' },
+              { src: `${origin}/pwa-512x512.png`, sizes: '512x512', type: 'image/png' },
+            ],
+          });
 
-    currentParagraphIndexRef.current = index;
-    setCurrentParagraphIndex(index);
-    setIsPaused(false);
-    isPausedRef.current = false;
+          navigator.mediaSession.setActionHandler('play', () => {
+            handleTogglePlayPause();
+          });
 
-    stopCurrentPlaybackOnly();
+          navigator.mediaSession.setActionHandler('pause', () => {
+            handleTogglePlayPause();
+          });
 
-    const textToSpeak = all[index];
-    if (!textToSpeak || !textToSpeak.trim()) {
-      playParagraph(index + 1);
-      return;
-    }
+          navigator.mediaSession.setActionHandler('stop', () => {
+            stopSpeech();
+          });
 
-    // Update MediaSession with current paragraph information
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: post ? post.title : '5LB Magazine',
-          artist: `5LB Magazine • Paragrafo ${index + 1} di ${all.length}`,
-          album: 'magazine.5lb.eu',
-          artwork: [
-            { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-            { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-          ],
-        });
-        navigator.mediaSession.playbackState = 'playing';
-      } catch {}
-    }
+          navigator.mediaSession.setActionHandler('nexttrack', () => {
+            handleNextChunk();
+          });
 
-    // Try HTML5 Audio via /api/tts first (guarantees native background playback on Android)
-    let audioUrl = audioBlobCacheRef.current.get(index);
-    if (!audioUrl) {
-      setIsLoadingAudio(true);
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      try {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: textToSpeak, voice: 'Kore' }),
-          signal: controller.signal,
-        });
-        if (res.ok) {
-          const blob = await res.blob();
-          audioUrl = URL.createObjectURL(blob);
-          audioBlobCacheRef.current.set(index, audioUrl);
-        }
-      } catch (err: any) {
-        if (err.name === 'AbortError') return;
-      } finally {
-        setIsLoadingAudio(false);
+          navigator.mediaSession.setActionHandler('previoustrack', () => {
+            handlePrevChunk();
+          });
+
+          try {
+            navigator.mediaSession.setActionHandler('seekbackward', () => {
+              handlePrevChunk();
+            });
+            navigator.mediaSession.setActionHandler('seekforward', () => {
+              handleNextChunk();
+            });
+          } catch {}
+
+          navigator.mediaSession.playbackState = 'playing';
+        } catch {}
       }
-    }
+    },
+    []
+  );
 
-    if (audioUrl && isPlayingRef.current) {
-      try {
-        if (!audioPlayerRef.current) {
-          audioPlayerRef.current = new Audio();
-        }
-        const audio = audioPlayerRef.current;
-        audio.src = audioUrl;
-        audio.onended = () => {
-          if (isPlayingRef.current && !isPausedRef.current) {
-            const next = index + 1;
-            if (next < all.length) {
-              playParagraph(next);
-            } else {
-              stopSpeech();
-            }
-          }
-        };
-        audio.onerror = () => {
-          fallbackWebSpeech(textToSpeak, index);
-        };
-        await audio.play();
+  const playChunk = useCallback(
+    async (index: number) => {
+      if (!isPlayingRef.current) return;
+      const all = chunksRef.current;
+      if (index < 0 || index >= all.length) {
+        stopSpeech();
+        return;
+      }
 
-        // Pre-fetch next paragraph audio in the background for instant transition
-        if (index + 1 < all.length && !audioBlobCacheRef.current.has(index + 1)) {
-          fetch('/api/tts', {
+      currentChunkIndexRef.current = index;
+      setCurrentChunkIndex(index);
+      setIsPaused(false);
+      isPausedRef.current = false;
+
+      stopCurrentPlaybackOnly();
+
+      const chunk = all[index];
+      const textToSpeak = chunk?.text;
+      if (!textToSpeak || !textToSpeak.trim()) {
+        playChunk(index + 1);
+        return;
+      }
+
+      // Update MediaSession with current chunk information & system notification
+      setupMediaSession(post ? post.title : '5LB Magazine', index, all.length);
+
+      // Try HTML5 Audio via /api/tts first (guarantees native background playback on Android)
+      let audioUrl = audioBlobCacheRef.current.get(index);
+      if (!audioUrl) {
+        setIsLoadingAudio(true);
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        try {
+          const res = await fetch('/api/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: all[index + 1], voice: 'Kore' }),
-          })
-            .then((r) => (r.ok ? r.blob() : null))
-            .then((b) => {
-              if (b) {
-                audioBlobCacheRef.current.set(index + 1, URL.createObjectURL(b));
-              }
-            })
-            .catch(() => {});
+            body: JSON.stringify({ text: textToSpeak, voice: 'Kore' }),
+            signal: controller.signal,
+          });
+          if (res.ok) {
+            const blob = await res.blob();
+            audioUrl = URL.createObjectURL(blob);
+            audioBlobCacheRef.current.set(index, audioUrl);
+          }
+        } catch (err: any) {
+          if (err.name === 'AbortError') return;
+        } finally {
+          setIsLoadingAudio(false);
         }
-        return;
-      } catch {}
-    }
+      }
 
-    // Fallback: Web Speech API
-    fallbackWebSpeech(textToSpeak, index);
-  }, [post, stopCurrentPlaybackOnly, stopSpeech, fallbackWebSpeech]);
+      if (audioUrl && isPlayingRef.current) {
+        try {
+          if (!audioPlayerRef.current) {
+            audioPlayerRef.current = new Audio();
+          }
+          const audio = audioPlayerRef.current;
+          audio.src = audioUrl;
+          audio.onended = () => {
+            if (isPlayingRef.current && !isPausedRef.current) {
+              const next = index + 1;
+              if (next < all.length) {
+                playChunk(next);
+              } else {
+                stopSpeech();
+              }
+            }
+          };
+          audio.onerror = () => {
+            fallbackWebSpeech(textToSpeak, index);
+          };
+          await audio.play();
+
+          // Pre-fetch next chunk audio in the background for zero-gap transition
+          if (index + 1 < all.length && !audioBlobCacheRef.current.has(index + 1)) {
+            fetch('/api/tts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: all[index + 1].text, voice: 'Kore' }),
+            })
+              .then((r) => (r.ok ? r.blob() : null))
+              .then((b) => {
+                if (b) {
+                  audioBlobCacheRef.current.set(index + 1, URL.createObjectURL(b));
+                }
+              })
+              .catch(() => {});
+          }
+          return;
+        } catch {
+          // In case play throws on older devices, fallback gracefully
+        }
+      }
+
+      // Fallback: Web Speech API
+      fallbackWebSpeech(textToSpeak, index);
+    },
+    [post, stopCurrentPlaybackOnly, stopSpeech, fallbackWebSpeech, setupMediaSession]
+  );
 
   const handleTogglePlayPause = useCallback(() => {
     if (isPausedRef.current) {
@@ -429,7 +563,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       } else if ('speechSynthesis' in window && window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       } else {
-        playParagraph(currentParagraphIndexRef.current);
+        playChunk(currentChunkIndexRef.current);
       }
       if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'playing';
@@ -448,77 +582,53 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         navigator.mediaSession.playbackState = 'paused';
       }
     }
-  }, [playParagraph]);
+  }, [playChunk]);
 
-  const handleNextParagraph = useCallback(() => {
-    const next = currentParagraphIndexRef.current + 1;
-    if (next < paragraphsRef.current.length) {
-      playParagraph(next);
+  const handleNextChunk = useCallback(() => {
+    const next = currentChunkIndexRef.current + 1;
+    if (next < chunksRef.current.length) {
+      playChunk(next);
     }
-  }, [playParagraph]);
+  }, [playChunk]);
 
-  const handlePrevParagraph = useCallback(() => {
-    const prev = currentParagraphIndexRef.current - 1;
+  const handlePrevChunk = useCallback(() => {
+    const prev = currentChunkIndexRef.current - 1;
     if (prev >= 0) {
-      playParagraph(prev);
+      playChunk(prev);
     }
-  }, [playParagraph]);
-
-  const setupMediaSession = useCallback((articleTitle: string) => {
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: articleTitle,
-          artist: '5LB Magazine — Lettura vocale',
-          album: 'magazine.5lb.eu',
-          artwork: [
-            { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-            { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-          ],
-        });
-
-        navigator.mediaSession.setActionHandler('play', () => {
-          handleTogglePlayPause();
-        });
-
-        navigator.mediaSession.setActionHandler('pause', () => {
-          handleTogglePlayPause();
-        });
-
-        navigator.mediaSession.setActionHandler('stop', () => {
-          stopSpeech();
-        });
-
-        navigator.mediaSession.setActionHandler('nexttrack', () => {
-          handleNextParagraph();
-        });
-
-        navigator.mediaSession.setActionHandler('previoustrack', () => {
-          handlePrevParagraph();
-        });
-
-        navigator.mediaSession.playbackState = 'playing';
-      } catch {}
-    }
-  }, [handleTogglePlayPause, stopSpeech, handleNextParagraph, handlePrevParagraph]);
+  }, [playChunk]);
 
   const startSpeech = useCallback(() => {
     if (!post) return;
-    const all = paragraphsRef.current;
+    const all = chunksRef.current;
     if (all.length === 0) return;
 
     isPlayingRef.current = true;
     isPausedRef.current = false;
     setIsSpeaking(true);
     setIsPaused(false);
-    currentParagraphIndexRef.current = 0;
-    setCurrentParagraphIndex(0);
+    currentChunkIndexRef.current = 0;
+    setCurrentChunkIndex(0);
+
+    // CRITICAL FOR ANDROID: Prime audio element synchronously in user gesture
+    if (!audioPlayerRef.current) {
+      audioPlayerRef.current = new Audio();
+    }
+    const audio = audioPlayerRef.current;
+    const cached0 = audioBlobCacheRef.current.get(0);
+    if (cached0) {
+      audio.src = cached0;
+      audio.play().catch(() => {});
+    } else {
+      audio.src = SILENT_WAV;
+      audio.play().catch(() => {});
+    }
 
     requestWakeLock();
-    setupMediaSession(post.title);
+    setupMediaSession(post.title, 0, all.length);
 
-    playParagraph(0);
-  }, [post, requestWakeLock, setupMediaSession, playParagraph]);
+    playChunk(0);
+  }, [post, requestWakeLock, setupMediaSession, playChunk, SILENT_WAV]);
 
   const toggleSpeech = () => {
     if (isSpeaking) {
@@ -528,18 +638,18 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     }
   };
 
-  // Keep background speech synthesis alive across screen lock / visibility changes
+  // Keep background speech alive across screen lock / visibility changes
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (isPlayingRef.current) {
         if (document.visibilityState === 'visible') {
           requestWakeLock();
-          // If speech synthesis was interrupted by Android OS when backgrounded, resume current paragraph
+          // If playback was paused or interrupted by Android OS when backgrounded, resume current chunk
           if (!isPausedRef.current) {
             if (audioPlayerRef.current && audioPlayerRef.current.paused && audioPlayerRef.current.src) {
               audioPlayerRef.current.play().catch(() => {});
             } else if ('speechSynthesis' in window && !window.speechSynthesis.speaking) {
-              playParagraph(currentParagraphIndexRef.current);
+              playChunk(currentChunkIndexRef.current);
             }
           }
         }
@@ -550,7 +660,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [requestWakeLock, playParagraph]);
+  }, [requestWakeLock, playChunk]);
 
   // Highlighted HTML content & match count computation
   const { highlightedHtml, totalMatches } = useMemo(() => {
@@ -729,7 +839,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         {/* Active Speech Control Bar */}
         {isSpeaking && (
           <div className="bg-orange-50/95 dark:bg-slate-800/95 border-b border-orange-200 dark:border-slate-700 px-3 sm:px-5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-800 dark:text-slate-100 shadow-xs backdrop-blur-md animate-in fade-in">
-            {/* Left: Indicator & Paragraph Count */}
+            {/* Left: Indicator & Chunk Count */}
             <div className="flex items-center gap-2 min-w-0">
               <span className="relative flex h-2.5 w-2.5 shrink-0">
                 {!isPaused && (
@@ -740,9 +850,10 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               <span className="font-bold text-orange-950 dark:text-orange-200 truncate">
                 Lettura vocale {isPaused ? 'in pausa' : 'attiva'}
               </span>
-              {paragraphs.length > 0 && (
+              {chunks.length > 0 && (
                 <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-orange-100/80 dark:bg-slate-700/80 px-2 py-0.5 rounded-full shrink-0">
-                  {currentParagraphIndex === 0 ? 'Titolo' : `Paragrafo ${currentParagraphIndex} di ${paragraphs.length - 1}`}
+                  Blocco {currentChunkIndex + 1} di {chunks.length}
+                  {chunks[currentChunkIndex]?.wordCount ? ` • ~${chunks[currentChunkIndex].wordCount} parole` : ''}
                 </span>
               )}
               {isLoadingAudio && (
@@ -754,14 +865,14 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
             {/* Right: Controls (Salto Indietro, Play/Pausa, Salto Avanti, Ferma) */}
             <div className="flex items-center gap-1.5 shrink-0">
-              {/* Salto paragrafo indietro */}
+              {/* Salto chunk indietro */}
               <button
                 type="button"
-                onClick={handlePrevParagraph}
-                disabled={currentParagraphIndex <= 0}
+                onClick={handlePrevChunk}
+                disabled={currentChunkIndex <= 0}
                 className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-orange-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
-                title="Paragrafo precedente"
-                aria-label="Paragrafo precedente"
+                title="Salto indietro (~45 parole indietro)"
+                aria-label="Salto indietro"
               >
                 <SkipBack className="w-4 h-4" />
               </button>
@@ -778,14 +889,14 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 <span className="text-[11px] font-bold">{isPaused ? 'Riprendi' : 'Pausa'}</span>
               </button>
 
-              {/* Salto paragrafo avanti */}
+              {/* Salto chunk avanti */}
               <button
                 type="button"
-                onClick={handleNextParagraph}
-                disabled={currentParagraphIndex >= paragraphs.length - 1}
+                onClick={handleNextChunk}
+                disabled={currentChunkIndex >= chunks.length - 1}
                 className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-orange-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
-                title="Paragrafo successivo"
-                aria-label="Paragrafo successivo"
+                title="Salto avanti (~45 parole avanti)"
+                aria-label="Salto avanti"
               >
                 <SkipForward className="w-4 h-4" />
               </button>
