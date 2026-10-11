@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { GoogleGenAI } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -8,6 +9,20 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+
+const ai = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    })
+  : null;
+
+// In-memory cache for generated TTS audio buffers (max 150 items)
+const ttsCache = new Map<string, Buffer>();
 
 app.use(express.json());
 
@@ -173,6 +188,86 @@ app.get('/api/telegram-view', async (req, res) => {
   } catch (error: any) {
     console.error('Error proxying Telegram:', error);
     return res.status(500).send('Impossibile caricare il canale Telegram al momento.');
+  }
+});
+
+// Text-to-Speech (TTS) endpoint using Gemini 3.8 Flash Lite TTS
+// Generates audio/wav streams that can play in HTML5 <audio> on mobile (including Android with screen off/background)
+app.post('/api/tts', async (req, res) => {
+  try {
+    const { text, voice } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'Testo mancante o non valido.' });
+    }
+
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'Testo vuoto.' });
+    }
+
+    // Limit text to 1200 characters per chunk for latency and buffer stability
+    const safeText = trimmed.slice(0, 1200);
+    const voiceName = voice || 'Kore';
+    const cacheKey = `${voiceName}:${safeText}`;
+
+    if (ttsCache.has(cacheKey)) {
+      const cached = ttsCache.get(cacheKey)!;
+      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('Content-Length', cached.length);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.end(cached);
+    }
+
+    if (!ai || !process.env.GEMINI_API_KEY) {
+      return res.status(503).json({ error: 'Servizio TTS non configurato (GEMINI_API_KEY assente).' });
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash-lite-tts',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: safeText,
+              speechMetadata: {
+                style: 'Voce narrante italiana, chiara, fluida e naturale, tono rilassante e professionale',
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voiceName },
+          },
+        },
+      },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) {
+      return res.status(502).json({ error: 'Nessun flusso audio generato.' });
+    }
+
+    const audioBuffer = Buffer.from(base64Audio, 'base64');
+
+    // Keep cache bounded to 150 items
+    if (ttsCache.size > 150) {
+      const firstKey = ttsCache.keys().next().value;
+      if (firstKey) ttsCache.delete(firstKey);
+    }
+    ttsCache.set(cacheKey, audioBuffer);
+
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Length', audioBuffer.length);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.end(audioBuffer);
+  } catch (error: any) {
+    console.error('Error in /api/tts endpoint:', error);
+    return res.status(500).json({ error: error.message || 'Errore nella generazione vocale.' });
   }
 });
 

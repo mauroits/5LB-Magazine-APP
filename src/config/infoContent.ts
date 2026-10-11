@@ -54,11 +54,11 @@ export const INFO_PAGE_CONTENT = {
     title: 'Registro delle Versioni & Miglioramenti',
     releases: [
       {
-        version: 'v1.0.0 (Attuale)',
+        version: 'v2.0.0 (Attuale)',
         date: 'Ottobre 2026',
         isCurrent: true,
         notes: [
-          'Prima release.',
+          'Prima release della seconda versione, ricostruita dalle fondamenta.',
         ],
       },
       

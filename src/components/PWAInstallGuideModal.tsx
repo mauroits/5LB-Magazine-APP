@@ -290,7 +290,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
                   App 5LB Magazine presente sul dispositivo
                 </h4>
                 <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed max-w-sm mx-auto">
-                  L'applicazione è presente sul tuo {deviceName}. Per usufruire dell'esperienza completa a schermo intero e con notifiche, aprila direttamente dalla schermata Home.
+                  L'applicazione è presente sul tuo dispositivo. Per usufruire dell'esperienza completa a schermo intero e con notifiche, aprila direttamente dalla schermata Home.
                 </p>
               </div>
 

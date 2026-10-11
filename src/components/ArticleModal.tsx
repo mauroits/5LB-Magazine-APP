@@ -14,12 +14,88 @@ import {
   Check,
   Search,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Square
 } from 'lucide-react';
 import { BloggerPost } from '../types';
 import { formatItalianDate } from '../services/bloggerFeed';
 import { highlightHtmlContent } from '../utils/searchUtils';
 import { trackEvent } from '../services/analytics';
+
+export function parseArticleParagraphs(title: string, contentHtml: string): string[] {
+  const result: string[] = [];
+  const cleanTitle = (title || '').trim();
+  if (cleanTitle) {
+    result.push(cleanTitle);
+  }
+
+  if (!contentHtml) return result;
+
+  try {
+    if (typeof DOMParser !== 'undefined') {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(contentHtml, 'text/html');
+
+      // Strip unwanted elements
+      doc.querySelectorAll('script, style, iframe, noscript, svg, audio, video').forEach((el) => el.remove());
+
+      const blocks = doc.querySelectorAll('p, h2, h3, h4, li, blockquote');
+      blocks.forEach((el) => {
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text && text.length > 5) {
+          if (text.length > 550) {
+            // Split long paragraphs by sentence boundaries for smooth playback
+            const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+            let current = '';
+            for (const s of sentences) {
+              if ((current + ' ' + s).length <= 380) {
+                current = current ? `${current} ${s.trim()}` : s.trim();
+              } else {
+                if (current.trim()) result.push(current.trim());
+                current = s.trim();
+              }
+            }
+            if (current.trim()) result.push(current.trim());
+          } else {
+            result.push(text);
+          }
+        }
+      });
+    }
+
+    if (result.length <= 1) {
+      const stripped = contentHtml
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const sentences = stripped.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [stripped];
+      let current = '';
+      for (const s of sentences) {
+        if ((current + ' ' + s).length <= 320) {
+          current = current ? `${current} ${s.trim()}` : s.trim();
+        } else {
+          if (current.trim()) result.push(current.trim());
+          current = s.trim();
+        }
+      }
+      if (current.trim()) result.push(current.trim());
+    }
+  } catch {
+    const raw = (title + '. ' + contentHtml.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+    if (raw) result.push(raw);
+  }
+
+  return result.length > 0 ? result : [title];
+}
 
 interface ArticleModalProps {
   post: BloggerPost | null;
@@ -37,7 +113,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   initialSearchQuery = '',
 }) => {
   const [fontSize, setFontSize] = useState<number>(17); // base px
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // In-article word search state
@@ -65,14 +140,31 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     }
   }, [post?.id, initialSearchQuery]);
 
-  // Audio & Background playback refs
+  // Speech & Background playback state and refs
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [currentParagraphIndex, setCurrentParagraphIndex] = useState<number>(0);
+  const [isLoadingAudio, setIsLoadingAudio] = useState<boolean>(false);
+
+  const paragraphs = useMemo(() => {
+    if (!post) return [];
+    return parseArticleParagraphs(post.title, post.content);
+  }, [post?.title, post?.content]);
+
+  // Audio elements & state refs
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const silentAudioRef = useRef<HTMLAudioElement | null>(null);
   const wakeLockRef = useRef<any>(null);
   const keepAliveTimerRef = useRef<any>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const chunksRef = useRef<string[]>([]);
-  const chunkIndexRef = useRef<number>(0);
+  const audioBlobCacheRef = useRef<Map<number, string>>(new Map());
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const isPlayingRef = useRef<boolean>(false);
+  const isPausedRef = useRef<boolean>(false);
+  const currentParagraphIndexRef = useRef<number>(0);
+  const paragraphsRef = useRef<string[]>([]);
+  paragraphsRef.current = paragraphs;
 
   // Screen Wake Lock API to prevent screen timeout while listening
   const requestWakeLock = useCallback(async () => {
@@ -89,9 +181,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     if (wakeLockRef.current) {
       try {
         await wakeLockRef.current.release();
-      } catch {
-        // ignore
-      }
+      } catch {}
       wakeLockRef.current = null;
     }
   }, []);
@@ -100,18 +190,15 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const startSilentAudio = useCallback(() => {
     try {
       if (!silentAudioRef.current) {
-        // 1-second 8000Hz PCM silence WAV
         const audio = new Audio(
           'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YRAAAAAAAAAAAAAAAAAAAAAA'
         );
         audio.loop = true;
-        audio.volume = 0.01; // Non-zero volume ensures iOS marks audio session as active
+        audio.volume = 0.01;
         silentAudioRef.current = audio;
       }
       silentAudioRef.current.play().catch(() => {});
-    } catch {
-      // Audio element fallback
-    }
+    } catch {}
   }, []);
 
   const stopSilentAudio = useCallback(() => {
@@ -119,13 +206,264 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       try {
         silentAudioRef.current.pause();
         silentAudioRef.current.currentTime = 0;
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
   }, []);
 
-  // MediaSession integration for Lock Screen controls
+  const stopCurrentPlaybackOnly = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.onended = null;
+      audioPlayerRef.current.onerror = null;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    utteranceRef.current = null;
+  }, []);
+
+  const stopSpeech = useCallback(() => {
+    isPlayingRef.current = false;
+    isPausedRef.current = false;
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setIsLoadingAudio(false);
+    currentParagraphIndexRef.current = 0;
+    setCurrentParagraphIndex(0);
+
+    stopCurrentPlaybackOnly();
+    stopSilentAudio();
+    releaseWakeLock();
+
+    // Revoke cached blob URLs to prevent memory leaks
+    audioBlobCacheRef.current.forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+    });
+    audioBlobCacheRef.current.clear();
+
+    if (keepAliveTimerRef.current) {
+      clearInterval(keepAliveTimerRef.current);
+      keepAliveTimerRef.current = null;
+    }
+
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'none';
+      } catch {}
+    }
+  }, [stopCurrentPlaybackOnly, stopSilentAudio, releaseWakeLock]);
+
+  // Stop speech synthesis on unmount or when modal closes or post changes
+  useEffect(() => {
+    return () => {
+      stopSpeech();
+    };
+  }, [post?.id, stopSpeech]);
+
+  const fallbackWebSpeech = useCallback((text: string, index: number) => {
+    if (!isPlayingRef.current || !('speechSynthesis' in window)) return;
+
+    startSilentAudio();
+
+    const utterance = new SpeechSynthesisUtterance(text.trim());
+    utterance.lang = 'it-IT';
+    utterance.rate = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const itVoice = voices.find(
+      (v) => v.lang.toLowerCase().startsWith('it') || v.lang.toLowerCase().includes('it')
+    );
+    if (itVoice) {
+      utterance.voice = itVoice;
+    }
+
+    utterance.onend = () => {
+      if (isPlayingRef.current && !isPausedRef.current) {
+        const next = index + 1;
+        if (next < paragraphsRef.current.length) {
+          playParagraph(next);
+        } else {
+          stopSpeech();
+        }
+      }
+    };
+
+    utterance.onerror = (e) => {
+      if (e.error === 'interrupted' || e.error === 'canceled') return;
+      if (isPlayingRef.current && !isPausedRef.current) {
+        const next = index + 1;
+        if (next < paragraphsRef.current.length) {
+          playParagraph(next);
+        } else {
+          stopSpeech();
+        }
+      }
+    };
+
+    utteranceRef.current = utterance;
+    (window as any).__5lbActiveUtterance = utterance;
+
+    window.speechSynthesis.speak(utterance);
+  }, [startSilentAudio, stopSpeech]);
+
+  const playParagraph = useCallback(async (index: number) => {
+    if (!isPlayingRef.current) return;
+    const all = paragraphsRef.current;
+    if (index < 0 || index >= all.length) {
+      stopSpeech();
+      return;
+    }
+
+    currentParagraphIndexRef.current = index;
+    setCurrentParagraphIndex(index);
+    setIsPaused(false);
+    isPausedRef.current = false;
+
+    stopCurrentPlaybackOnly();
+
+    const textToSpeak = all[index];
+    if (!textToSpeak || !textToSpeak.trim()) {
+      playParagraph(index + 1);
+      return;
+    }
+
+    // Update MediaSession with current paragraph information
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: post ? post.title : '5LB Magazine',
+          artist: `5LB Magazine • Paragrafo ${index + 1} di ${all.length}`,
+          album: 'magazine.5lb.eu',
+          artwork: [
+            { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          ],
+        });
+        navigator.mediaSession.playbackState = 'playing';
+      } catch {}
+    }
+
+    // Try HTML5 Audio via /api/tts first (guarantees native background playback on Android)
+    let audioUrl = audioBlobCacheRef.current.get(index);
+    if (!audioUrl) {
+      setIsLoadingAudio(true);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: textToSpeak, voice: 'Kore' }),
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          audioUrl = URL.createObjectURL(blob);
+          audioBlobCacheRef.current.set(index, audioUrl);
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+      } finally {
+        setIsLoadingAudio(false);
+      }
+    }
+
+    if (audioUrl && isPlayingRef.current) {
+      try {
+        if (!audioPlayerRef.current) {
+          audioPlayerRef.current = new Audio();
+        }
+        const audio = audioPlayerRef.current;
+        audio.src = audioUrl;
+        audio.onended = () => {
+          if (isPlayingRef.current && !isPausedRef.current) {
+            const next = index + 1;
+            if (next < all.length) {
+              playParagraph(next);
+            } else {
+              stopSpeech();
+            }
+          }
+        };
+        audio.onerror = () => {
+          fallbackWebSpeech(textToSpeak, index);
+        };
+        await audio.play();
+
+        // Pre-fetch next paragraph audio in the background for instant transition
+        if (index + 1 < all.length && !audioBlobCacheRef.current.has(index + 1)) {
+          fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: all[index + 1], voice: 'Kore' }),
+          })
+            .then((r) => (r.ok ? r.blob() : null))
+            .then((b) => {
+              if (b) {
+                audioBlobCacheRef.current.set(index + 1, URL.createObjectURL(b));
+              }
+            })
+            .catch(() => {});
+        }
+        return;
+      } catch {}
+    }
+
+    // Fallback: Web Speech API
+    fallbackWebSpeech(textToSpeak, index);
+  }, [post, stopCurrentPlaybackOnly, stopSpeech, fallbackWebSpeech]);
+
+  const handleTogglePlayPause = useCallback(() => {
+    if (isPausedRef.current) {
+      // Resume
+      isPausedRef.current = false;
+      setIsPaused(false);
+      if (audioPlayerRef.current && audioPlayerRef.current.src && !audioPlayerRef.current.ended) {
+        audioPlayerRef.current.play().catch(() => {});
+      } else if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      } else {
+        playParagraph(currentParagraphIndexRef.current);
+      }
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'playing';
+      }
+    } else {
+      // Pause
+      isPausedRef.current = true;
+      setIsPaused(true);
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.pause();
+      }
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused';
+      }
+    }
+  }, [playParagraph]);
+
+  const handleNextParagraph = useCallback(() => {
+    const next = currentParagraphIndexRef.current + 1;
+    if (next < paragraphsRef.current.length) {
+      playParagraph(next);
+    }
+  }, [playParagraph]);
+
+  const handlePrevParagraph = useCallback(() => {
+    const prev = currentParagraphIndexRef.current - 1;
+    if (prev >= 0) {
+      playParagraph(prev);
+    }
+  }, [playParagraph]);
+
   const setupMediaSession = useCallback((articleTitle: string) => {
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       try {
@@ -140,77 +478,70 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         });
 
         navigator.mediaSession.setActionHandler('play', () => {
-          if ('speechSynthesis' in window && window.speechSynthesis.paused) {
-            window.speechSynthesis.resume();
-          }
-          if (silentAudioRef.current && silentAudioRef.current.paused) {
-            silentAudioRef.current.play().catch(() => {});
-          }
+          handleTogglePlayPause();
         });
 
         navigator.mediaSession.setActionHandler('pause', () => {
-          if ('speechSynthesis' in window) {
-            window.speechSynthesis.pause();
-          }
-          if (silentAudioRef.current) {
-            silentAudioRef.current.pause();
-          }
+          handleTogglePlayPause();
         });
 
         navigator.mediaSession.setActionHandler('stop', () => {
           stopSpeech();
         });
 
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+          handleNextParagraph();
+        });
+
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+          handlePrevParagraph();
+        });
+
         navigator.mediaSession.playbackState = 'playing';
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
-  }, []);
+  }, [handleTogglePlayPause, stopSpeech, handleNextParagraph, handlePrevParagraph]);
 
-  const stopSpeech = useCallback(() => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    isPlayingRef.current = false;
-    setIsSpeaking(false);
-    chunksRef.current = [];
-    chunkIndexRef.current = 0;
-    utteranceRef.current = null;
+  const startSpeech = useCallback(() => {
+    if (!post) return;
+    const all = paragraphsRef.current;
+    if (all.length === 0) return;
 
-    if (keepAliveTimerRef.current) {
-      clearInterval(keepAliveTimerRef.current);
-      keepAliveTimerRef.current = null;
-    }
+    isPlayingRef.current = true;
+    isPausedRef.current = false;
+    setIsSpeaking(true);
+    setIsPaused(false);
+    currentParagraphIndexRef.current = 0;
+    setCurrentParagraphIndex(0);
 
-    stopSilentAudio();
-    releaseWakeLock();
+    requestWakeLock();
+    setupMediaSession(post.title);
 
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.playbackState = 'none';
-      } catch {
-        // ignore
-      }
-    }
-  }, [stopSilentAudio, releaseWakeLock]);
+    playParagraph(0);
+  }, [post, requestWakeLock, setupMediaSession, playParagraph]);
 
-  // Stop speech synthesis on unmount or when modal closes or post changes
-  useEffect(() => {
-    return () => {
+  const toggleSpeech = () => {
+    if (isSpeaking) {
       stopSpeech();
-    };
-  }, [post?.id, stopSpeech]);
+    } else {
+      startSpeech();
+    }
+  };
 
   // Keep background speech synthesis alive across screen lock / visibility changes
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (isPlayingRef.current) {
-        if ('speechSynthesis' in window && window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
         if (document.visibilityState === 'visible') {
           requestWakeLock();
+          // If speech synthesis was interrupted by Android OS when backgrounded, resume current paragraph
+          if (!isPausedRef.current) {
+            if (audioPlayerRef.current && audioPlayerRef.current.paused && audioPlayerRef.current.src) {
+              audioPlayerRef.current.play().catch(() => {});
+            } else if ('speechSynthesis' in window && !window.speechSynthesis.speaking) {
+              playParagraph(currentParagraphIndexRef.current);
+            }
+          }
         }
       }
     };
@@ -219,58 +550,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [requestWakeLock]);
-
-  const speakNextChunk = useCallback(() => {
-    if (!isPlayingRef.current || !('speechSynthesis' in window)) return;
-
-    if (chunkIndexRef.current >= chunksRef.current.length) {
-      stopSpeech();
-      return;
-    }
-
-    const chunk = chunksRef.current[chunkIndexRef.current];
-    if (!chunk || !chunk.trim()) {
-      chunkIndexRef.current++;
-      speakNextChunk();
-      return;
-    }
-
-    const utterance = new SpeechSynthesisUtterance(chunk.trim());
-    utterance.lang = 'it-IT';
-    utterance.rate = 1.0;
-
-    // Pick Italian voice if available on iOS/Android
-    const voices = window.speechSynthesis.getVoices();
-    const itVoice = voices.find(
-      (v) => v.lang.toLowerCase().startsWith('it') || v.lang.toLowerCase().includes('it')
-    );
-    if (itVoice) {
-      utterance.voice = itVoice;
-    }
-
-    utterance.onend = () => {
-      if (isPlayingRef.current) {
-        chunkIndexRef.current++;
-        speakNextChunk();
-      }
-    };
-
-    utterance.onerror = (e) => {
-      // If user paused/canceled, ignore
-      if (e.error === 'interrupted' || e.error === 'canceled') return;
-      if (isPlayingRef.current) {
-        chunkIndexRef.current++;
-        speakNextChunk();
-      }
-    };
-
-    // Keep reference alive on window to prevent garbage collection on mobile
-    utteranceRef.current = utterance;
-    (window as any).__5lbActiveUtterance = utterance;
-
-    window.speechSynthesis.speak(utterance);
-  }, [stopSpeech]);
+  }, [requestWakeLock, playParagraph]);
 
   // Highlighted HTML content & match count computation
   const { highlightedHtml, totalMatches } = useMemo(() => {
@@ -318,81 +598,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   }, [activeIndex, isSearchOpen, totalMatches, searchWord]);
 
   if (!post) return null;
-
-  // Web Speech API text-to-speech with mobile sentence chunking
-  const toggleSpeech = () => {
-    if (!('speechSynthesis' in window)) {
-      alert('La sintesi vocale non è supportata dal tuo browser.');
-      return;
-    }
-
-    if (isSpeaking) {
-      stopSpeech();
-      return;
-    }
-
-    // Prepare text: strip html, decode entities, split into chunks
-    const rawText = post.title + '. ' + post.content.replace(/<[^>]+>/g, ' ');
-    const cleanText = rawText
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    // Split into sentences / manageable chunks of max ~160 chars for mobile stability
-    const sentences = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText];
-    const chunks: string[] = [];
-
-    for (const sentence of sentences) {
-      const trimmed = sentence.trim();
-      if (!trimmed) continue;
-      if (trimmed.length <= 160) {
-        chunks.push(trimmed);
-      } else {
-        // Subdivide long sentences by commas or colons
-        const parts = trimmed.split(/([,;:]\s+)/);
-        let current = '';
-        for (const p of parts) {
-          if ((current + p).length <= 160) {
-            current += p;
-          } else {
-            if (current) chunks.push(current.trim());
-            current = p;
-          }
-        }
-        if (current) chunks.push(current.trim());
-      }
-    }
-
-    chunksRef.current = chunks;
-    chunkIndexRef.current = 0;
-    isPlayingRef.current = true;
-    setIsSpeaking(true);
-
-    // Start background audio carrier, screen wake lock & lock screen controls
-    startSilentAudio();
-    setupMediaSession(post.title);
-    requestWakeLock();
-
-    // Keepalive watchdog for mobile background execution
-    if (keepAliveTimerRef.current) clearInterval(keepAliveTimerRef.current);
-    keepAliveTimerRef.current = setInterval(() => {
-      if (isPlayingRef.current && 'speechSynthesis' in window) {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-      }
-    }, 3500);
-
-    window.speechSynthesis.cancel();
-    // 60ms delay ensures iOS/Android WebKit clears audio pipeline before starting
-    setTimeout(() => {
-      speakNextChunk();
-    }, 60);
-  };
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -483,7 +688,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               title={
                 isSpeaking
                   ? 'Ferma lettura vocale'
-                  : 'Ascolta articolo (Lettura vocale attiva anche a schermo spento)'
+                  : 'Ascolta articolo (Lettura vocale)'
               }
             >
               {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -521,24 +726,81 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           </div>
         </div>
 
-        {/* Active Speech Background Indicator Bar */}
+        {/* Active Speech Control Bar */}
         {isSpeaking && (
-          <div className="bg-orange-50 dark:bg-orange-950/60 border-b border-orange-200 dark:border-orange-900/60 px-4 py-2 flex items-center justify-between text-xs text-orange-900 dark:text-orange-200 animate-in fade-in">
+          <div className="bg-orange-50/95 dark:bg-slate-800/95 border-b border-orange-200 dark:border-slate-700 px-3 sm:px-5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-800 dark:text-slate-100 shadow-xs backdrop-blur-md animate-in fade-in">
+            {/* Left: Indicator & Paragraph Count */}
             <div className="flex items-center gap-2 min-w-0">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                {!isPaused && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                )}
+                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isPaused ? 'bg-amber-500' : 'bg-orange-500'}`}></span>
               </span>
-              <span className="font-medium truncate">
-                Lettura vocale attiva — Continua anche a schermo spento
+              <span className="font-bold text-orange-950 dark:text-orange-200 truncate">
+                Lettura vocale {isPaused ? 'in pausa' : 'attiva'}
               </span>
+              {paragraphs.length > 0 && (
+                <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-orange-100/80 dark:bg-slate-700/80 px-2 py-0.5 rounded-full shrink-0">
+                  {currentParagraphIndex === 0 ? 'Titolo' : `Paragrafo ${currentParagraphIndex} di ${paragraphs.length - 1}`}
+                </span>
+              )}
+              {isLoadingAudio && (
+                <span className="text-[10px] text-orange-600 dark:text-orange-400 animate-pulse hidden sm:inline">
+                  • Caricamento audio...
+                </span>
+              )}
             </div>
-            <button
-              onClick={stopSpeech}
-              className="font-bold text-orange-700 dark:text-orange-300 hover:underline cursor-pointer ml-2 shrink-0"
-            >
-              Ferma
-            </button>
+
+            {/* Right: Controls (Salto Indietro, Play/Pausa, Salto Avanti, Ferma) */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Salto paragrafo indietro */}
+              <button
+                type="button"
+                onClick={handlePrevParagraph}
+                disabled={currentParagraphIndex <= 0}
+                className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-orange-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
+                title="Paragrafo precedente"
+                aria-label="Paragrafo precedente"
+              >
+                <SkipBack className="w-4 h-4" />
+              </button>
+
+              {/* Play / Pausa */}
+              <button
+                type="button"
+                onClick={handleTogglePlayPause}
+                className="px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                title={isPaused ? 'Riprendi lettura vocale' : 'Metti in pausa'}
+                aria-label={isPaused ? 'Riprendi lettura vocale' : 'Metti in pausa'}
+              >
+                {isPaused ? <Play className="w-3.5 h-3.5 fill-current" /> : <Pause className="w-3.5 h-3.5 fill-current" />}
+                <span className="text-[11px] font-bold">{isPaused ? 'Riprendi' : 'Pausa'}</span>
+              </button>
+
+              {/* Salto paragrafo avanti */}
+              <button
+                type="button"
+                onClick={handleNextParagraph}
+                disabled={currentParagraphIndex >= paragraphs.length - 1}
+                className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-orange-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
+                title="Paragrafo successivo"
+                aria-label="Paragrafo successivo"
+              >
+                <SkipForward className="w-4 h-4" />
+              </button>
+
+              {/* Ferma */}
+              <button
+                type="button"
+                onClick={stopSpeech}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer ml-1"
+                title="Ferma lettura vocale"
+                aria-label="Ferma lettura vocale"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+              </button>
+            </div>
           </div>
         )}
 
