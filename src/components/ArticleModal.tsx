@@ -219,23 +219,15 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     return extractArticleChunks(post.title, post.content);
   }, [post?.title, post?.content]);
 
-  // Audio elements & state refs
+  // Audio player & state refs
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-  const silentAudioRef = useRef<HTMLAudioElement | null>(null);
   const wakeLockRef = useRef<any>(null);
-  const keepAliveTimerRef = useRef<any>(null);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const audioBlobCacheRef = useRef<Map<number, string>>(new Map());
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   const isPlayingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false);
   const currentChunkIndexRef = useRef<number>(0);
   const chunksRef = useRef<ArticleChunk[]>([]);
   chunksRef.current = chunks;
-
-  const SILENT_WAV =
-    'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAP8A';
 
   // Screen Wake Lock API to prevent screen timeout while listening
   const requestWakeLock = useCallback(async () => {
@@ -257,42 +249,12 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     }
   }, []);
 
-  // HTML5 Silent audio loop carrier to keep background audio pipeline alive on iOS & Android
-  const startSilentAudio = useCallback(() => {
-    try {
-      if (!silentAudioRef.current) {
-        const audio = new Audio(SILENT_WAV);
-        audio.loop = true;
-        audio.volume = 0.01;
-        silentAudioRef.current = audio;
-      }
-      silentAudioRef.current.play().catch(() => {});
-    } catch {}
-  }, [SILENT_WAV]);
-
-  const stopSilentAudio = useCallback(() => {
-    if (silentAudioRef.current) {
-      try {
-        silentAudioRef.current.pause();
-        silentAudioRef.current.currentTime = 0;
-      } catch {}
-    }
-  }, []);
-
   const stopCurrentPlaybackOnly = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
       audioPlayerRef.current.onended = null;
       audioPlayerRef.current.onerror = null;
     }
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    utteranceRef.current = null;
   }, []);
 
   const stopSpeech = useCallback(() => {
@@ -305,30 +267,16 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     setCurrentChunkIndex(0);
 
     stopCurrentPlaybackOnly();
-    stopSilentAudio();
     releaseWakeLock();
-
-    // Revoke cached blob URLs to prevent memory leaks
-    audioBlobCacheRef.current.forEach((url) => {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {}
-    });
-    audioBlobCacheRef.current.clear();
-
-    if (keepAliveTimerRef.current) {
-      clearInterval(keepAliveTimerRef.current);
-      keepAliveTimerRef.current = null;
-    }
 
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       try {
         navigator.mediaSession.playbackState = 'none';
       } catch {}
     }
-  }, [stopCurrentPlaybackOnly, stopSilentAudio, releaseWakeLock]);
+  }, [stopCurrentPlaybackOnly, releaseWakeLock]);
 
-  // Stop speech synthesis on unmount or when modal closes or post changes
+  // Stop playback on unmount or when modal closes or post changes
   useEffect(() => {
     return () => {
       stopSpeech();
@@ -343,52 +291,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
     fetch(`/api/tts?text=${encodeURIComponent(chunk0.text)}`).catch(() => {});
   }, [chunks]);
-
-  const fallbackWebSpeech = useCallback((text: string, index: number) => {
-    if (!isPlayingRef.current || !('speechSynthesis' in window)) return;
-
-    startSilentAudio();
-
-    const utterance = new SpeechSynthesisUtterance(text.trim());
-    utterance.lang = 'it-IT';
-    utterance.rate = 1.0;
-
-    const voices = window.speechSynthesis.getVoices();
-    const itVoice = voices.find(
-      (v) => v.lang.toLowerCase().startsWith('it') || v.lang.toLowerCase().includes('it')
-    );
-    if (itVoice) {
-      utterance.voice = itVoice;
-    }
-
-    utterance.onend = () => {
-      if (isPlayingRef.current && !isPausedRef.current) {
-        const next = index + 1;
-        if (next < chunksRef.current.length) {
-          playChunk(next);
-        } else {
-          stopSpeech();
-        }
-      }
-    };
-
-    utterance.onerror = (e) => {
-      if (e.error === 'interrupted' || e.error === 'canceled') return;
-      if (isPlayingRef.current && !isPausedRef.current) {
-        const next = index + 1;
-        if (next < chunksRef.current.length) {
-          playChunk(next);
-        } else {
-          stopSpeech();
-        }
-      }
-    };
-
-    utteranceRef.current = utterance;
-    (window as any).__5lbActiveUtterance = utterance;
-
-    window.speechSynthesis.speak(utterance);
-  }, [startSilentAudio, stopSpeech]);
 
   const setupMediaSession = useCallback(
     (articleTitle: string, chunkIdx: number, totalChunks: number) => {
@@ -455,12 +357,15 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       setIsPaused(false);
       isPausedRef.current = false;
 
-      stopCurrentPlaybackOnly();
-
       const chunk = all[index];
       const textToSpeak = chunk?.text;
       if (!textToSpeak || !textToSpeak.trim()) {
-        playChunk(index + 1);
+        const next = index + 1;
+        if (next < all.length) {
+          playChunk(next);
+        } else {
+          stopSpeech();
+        }
         return;
       }
 
@@ -491,8 +396,11 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
           audio.onerror = (e) => {
             setIsLoadingAudio(false);
-            console.warn('Audio stream error, falling back to Web Speech:', e);
-            fallbackWebSpeech(textToSpeak, index);
+            console.warn('Audio playback error on chunk', index, e);
+            // CRITICAL: NEVER advance or skip chunks on error!
+            // Pause cleanly so the user remains exactly on the current chunk.
+            setIsPaused(true);
+            isPausedRef.current = true;
           };
 
           await audio.play();
@@ -501,16 +409,12 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           if (index + 1 < all.length) {
             fetch(`/api/tts?text=${encodeURIComponent(all[index + 1].text)}`).catch(() => {});
           }
-          return;
         } catch (err: any) {
-          console.warn('Audio play exception, trying fallback:', err);
+          console.warn('Audio play exception:', err);
         }
       }
-
-      // Fallback: Web Speech API
-      fallbackWebSpeech(textToSpeak, index);
     },
-    [post, stopCurrentPlaybackOnly, stopSpeech, fallbackWebSpeech, setupMediaSession]
+    [post, stopSpeech, setupMediaSession]
   );
 
   const handleTogglePlayPause = useCallback(() => {
@@ -518,10 +422,9 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       // Resume
       isPausedRef.current = false;
       setIsPaused(false);
-      if (audioPlayerRef.current && audioPlayerRef.current.src && !audioPlayerRef.current.ended) {
-        audioPlayerRef.current.play().catch(() => {});
-      } else if ('speechSynthesis' in window && window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
+      const audio = audioPlayerRef.current;
+      if (audio && audio.src && !audio.ended) {
+        audio.play().catch(() => {});
       } else {
         playChunk(currentChunkIndexRef.current);
       }
@@ -534,9 +437,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       setIsPaused(true);
       if (audioPlayerRef.current) {
         audioPlayerRef.current.pause();
-      }
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.pause();
       }
       if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused';
@@ -573,14 +473,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     requestWakeLock();
     setupMediaSession(post.title, 0, all.length);
 
-    // CRITICAL FOR ANDROID (Samsung S23, TCL 50):
-    // Directly start native audio stream synchronously within user gesture on mounted DOM element
-    const audio = audioPlayerRef.current;
-    if (audio) {
-      audio.src = `/api/tts?text=${encodeURIComponent(all[0].text)}`;
-      audio.play().catch((err) => console.warn('Sync audio play error on startSpeech:', err));
-    }
-
     playChunk(0);
   }, [post, requestWakeLock, setupMediaSession, playChunk]);
 
@@ -598,13 +490,9 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       if (isPlayingRef.current) {
         if (document.visibilityState === 'visible') {
           requestWakeLock();
-          // If playback was paused or interrupted by Android OS when backgrounded, resume current chunk
-          if (!isPausedRef.current) {
-            if (audioPlayerRef.current && audioPlayerRef.current.paused && audioPlayerRef.current.src) {
-              audioPlayerRef.current.play().catch(() => {});
-            } else if ('speechSynthesis' in window && !window.speechSynthesis.speaking) {
-              playChunk(currentChunkIndexRef.current);
-            }
+          // Keep UI in sync with audio state without restarting or skipping chunks
+          if (!isPausedRef.current && audioPlayerRef.current && audioPlayerRef.current.paused && !audioPlayerRef.current.ended) {
+            audioPlayerRef.current.play().catch(() => {});
           }
         }
       }
@@ -614,7 +502,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [requestWakeLock, playChunk]);
+  }, [requestWakeLock]);
 
   // Highlighted HTML content & match count computation
   const { highlightedHtml, totalMatches } = useMemo(() => {
@@ -693,7 +581,16 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         id="5lb-article-audio-player"
         playsInline
         preload="auto"
-        className="hidden"
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          bottom: -200,
+          left: -200,
+          width: 2,
+          height: 2,
+          opacity: 0.01,
+          pointerEvents: 'none',
+        }}
       />
       <div className="relative w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-3xl bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
         {/* Sticky Reader Toolbar */}
