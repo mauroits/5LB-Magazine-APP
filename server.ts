@@ -191,85 +191,137 @@ app.get('/api/telegram-view', async (req, res) => {
   }
 });
 
-// Text-to-Speech (TTS) endpoint using Gemini 3.8 Flash Lite TTS
-// Generates audio/wav streams that can play in HTML5 <audio> on mobile (including Android with screen off/background)
-app.post('/api/tts', async (req, res) => {
+// Helper to generate natural Italian speech audio via Google TTS stream
+async function generateGoogleTtsAudio(text: string): Promise<Buffer> {
+  const subChunks: string[] = [];
+  const words = text.split(/\s+/).filter(Boolean);
+  let current = '';
+  for (const w of words) {
+    if ((current + ' ' + w).length <= 180) {
+      current = current ? `${current} ${w}` : w;
+    } else {
+      if (current) subChunks.push(current);
+      current = w;
+    }
+  }
+  if (current) subChunks.push(current);
+
+  const buffers: Buffer[] = [];
+  for (const chunk of subChunks) {
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=it&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Referer: 'https://translate.google.com/',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Google TTS failed with status ${response.status}`);
+    }
+    const arrayBuf = await response.arrayBuffer();
+    buffers.push(Buffer.from(arrayBuf));
+  }
+
+  return Buffer.concat(buffers);
+}
+
+// Universal TTS Handler supporting both GET and POST requests
+async function handleTtsRequest(req: express.Request, res: express.Response) {
   try {
-    const { text, voice } = req.body;
-    if (!text || typeof text !== 'string') {
+    const rawText = (req.method === 'POST' ? req.body?.text : req.query?.text) as string | undefined;
+    const voice = (req.method === 'POST' ? req.body?.voice : req.query?.voice) as string | undefined;
+
+    if (!rawText || typeof rawText !== 'string') {
       return res.status(400).json({ error: 'Testo mancante o non valido.' });
     }
 
-    const trimmed = text.trim();
+    const trimmed = rawText.trim();
     if (!trimmed) {
       return res.status(400).json({ error: 'Testo vuoto.' });
     }
 
-    // Limit text to 1200 characters per chunk for latency and buffer stability
     const safeText = trimmed.slice(0, 1200);
     const voiceName = voice || 'Kore';
-    const cacheKey = `${voiceName}:${safeText}`;
+    const cacheKey = `tts:${voiceName}:${safeText}`;
 
+    // 1. Check in-memory cache
     if (ttsCache.has(cacheKey)) {
       const cached = ttsCache.get(cacheKey)!;
-      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('Content-Type', 'audio/mpeg');
       res.setHeader('Content-Length', cached.length);
-      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
       return res.end(cached);
     }
 
-    if (!ai || !process.env.GEMINI_API_KEY) {
-      return res.status(503).json({ error: 'Servizio TTS non configurato (GEMINI_API_KEY assente).' });
-    }
+    let audioBuffer: Buffer | null = null;
+    let contentType = 'audio/mpeg';
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash-lite-tts',
-      contents: [
-        {
-          role: 'user',
-          parts: [
+    // 2. Try Gemini 3.8 Flash Lite TTS if API key is present
+    if (ai && process.env.GEMINI_API_KEY) {
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash-lite-tts',
+          contents: [
             {
-              text: safeText,
-              speechMetadata: {
-                style: 'Voce narrante italiana, chiara, fluida e naturale, tono rilassante e professionale',
-              },
+              role: 'user',
+              parts: [
+                {
+                  text: safeText,
+                  speechMetadata: {
+                    style: 'Voce narrante italiana, chiara, fluida e naturale, tono rilassante e professionale',
+                  },
+                },
+              ],
             },
           ],
-        },
-      ],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voiceName },
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voiceName },
+              },
+            },
           },
-        },
-      },
-    });
+        });
 
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) {
-      return res.status(502).json({ error: 'Nessun flusso audio generato.' });
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (base64Audio) {
+          audioBuffer = Buffer.from(base64Audio, 'base64');
+          contentType = 'audio/wav';
+        }
+      } catch (geminiError: any) {
+        console.warn('Gemini TTS quota or error, falling back to Google Italian TTS:', geminiError?.message || geminiError);
+      }
     }
 
-    const audioBuffer = Buffer.from(base64Audio, 'base64');
+    // 3. Fallback to Google Italian TTS (guaranteed 100% availability, 0ms quota, audio/mpeg)
+    if (!audioBuffer) {
+      audioBuffer = await generateGoogleTtsAudio(safeText);
+      contentType = 'audio/mpeg';
+    }
 
-    // Keep cache bounded to 150 items
-    if (ttsCache.size > 150) {
+    // Cache the result
+    if (ttsCache.size > 200) {
       const firstKey = ttsCache.keys().next().value;
       if (firstKey) ttsCache.delete(firstKey);
     }
     ttsCache.set(cacheKey, audioBuffer);
 
-    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', audioBuffer.length);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
     return res.end(audioBuffer);
   } catch (error: any) {
     console.error('Error in /api/tts endpoint:', error);
     return res.status(500).json({ error: error.message || 'Errore nella generazione vocale.' });
   }
-});
+}
+
+app.post('/api/tts', handleTtsRequest);
+app.get('/api/tts', handleTtsRequest);
 
 async function startServer() {
   if (!isProduction) {

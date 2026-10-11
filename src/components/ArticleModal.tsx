@@ -335,25 +335,13 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     };
   }, [post?.id, stopSpeech]);
 
-  // Pre-fetch first chunk in background as soon as article is opened
-  // This guarantees instant 0ms playback and user activation retention on Android!
+  // Pre-fetch first chunk in browser HTTP cache as soon as article is opened
   useEffect(() => {
     if (!chunks.length) return;
     const chunk0 = chunks[0];
-    if (!chunk0 || audioBlobCacheRef.current.has(0)) return;
+    if (!chunk0) return;
 
-    fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: chunk0.text, voice: 'Kore' }),
-    })
-      .then((r) => (r.ok ? r.blob() : null))
-      .then((b) => {
-        if (b) {
-          audioBlobCacheRef.current.set(0, URL.createObjectURL(b));
-        }
-      })
-      .catch(() => {});
+    fetch(`/api/tts?text=${encodeURIComponent(chunk0.text)}`).catch(() => {});
   }, [chunks]);
 
   const fallbackWebSpeech = useCallback((text: string, index: number) => {
@@ -479,38 +467,17 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       // Update MediaSession with current chunk information & system notification
       setupMediaSession(post ? post.title : '5LB Magazine', index, all.length);
 
-      // Try HTML5 Audio via /api/tts first (guarantees native background playback on Android)
-      let audioUrl = audioBlobCacheRef.current.get(index);
-      if (!audioUrl) {
-        setIsLoadingAudio(true);
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
+      const audio = audioPlayerRef.current;
+      if (audio) {
         try {
-          const res = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: textToSpeak, voice: 'Kore' }),
-            signal: controller.signal,
-          });
-          if (res.ok) {
-            const blob = await res.blob();
-            audioUrl = URL.createObjectURL(blob);
-            audioBlobCacheRef.current.set(index, audioUrl);
-          }
-        } catch (err: any) {
-          if (err.name === 'AbortError') return;
-        } finally {
-          setIsLoadingAudio(false);
-        }
-      }
+          const streamUrl = `/api/tts?text=${encodeURIComponent(textToSpeak)}`;
+          audio.src = streamUrl;
 
-      if (audioUrl && isPlayingRef.current) {
-        try {
-          if (!audioPlayerRef.current) {
-            audioPlayerRef.current = new Audio();
-          }
-          const audio = audioPlayerRef.current;
-          audio.src = audioUrl;
+          audio.onloadstart = () => setIsLoadingAudio(true);
+          audio.onplaying = () => setIsLoadingAudio(false);
+          audio.oncanplay = () => setIsLoadingAudio(false);
+          audio.onwaiting = () => setIsLoadingAudio(true);
+
           audio.onended = () => {
             if (isPlayingRef.current && !isPausedRef.current) {
               const next = index + 1;
@@ -521,29 +488,22 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               }
             }
           };
-          audio.onerror = () => {
+
+          audio.onerror = (e) => {
+            setIsLoadingAudio(false);
+            console.warn('Audio stream error, falling back to Web Speech:', e);
             fallbackWebSpeech(textToSpeak, index);
           };
+
           await audio.play();
 
-          // Pre-fetch next chunk audio in the background for zero-gap transition
-          if (index + 1 < all.length && !audioBlobCacheRef.current.has(index + 1)) {
-            fetch('/api/tts', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: all[index + 1].text, voice: 'Kore' }),
-            })
-              .then((r) => (r.ok ? r.blob() : null))
-              .then((b) => {
-                if (b) {
-                  audioBlobCacheRef.current.set(index + 1, URL.createObjectURL(b));
-                }
-              })
-              .catch(() => {});
+          // Pre-fetch next chunk into browser HTTP cache for instant transition
+          if (index + 1 < all.length) {
+            fetch(`/api/tts?text=${encodeURIComponent(all[index + 1].text)}`).catch(() => {});
           }
           return;
-        } catch {
-          // In case play throws on older devices, fallback gracefully
+        } catch (err: any) {
+          console.warn('Audio play exception, trying fallback:', err);
         }
       }
 
@@ -610,25 +570,19 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     currentChunkIndexRef.current = 0;
     setCurrentChunkIndex(0);
 
-    // CRITICAL FOR ANDROID: Prime audio element synchronously in user gesture
-    if (!audioPlayerRef.current) {
-      audioPlayerRef.current = new Audio();
-    }
-    const audio = audioPlayerRef.current;
-    const cached0 = audioBlobCacheRef.current.get(0);
-    if (cached0) {
-      audio.src = cached0;
-      audio.play().catch(() => {});
-    } else {
-      audio.src = SILENT_WAV;
-      audio.play().catch(() => {});
-    }
-
     requestWakeLock();
     setupMediaSession(post.title, 0, all.length);
 
+    // CRITICAL FOR ANDROID (Samsung S23, TCL 50):
+    // Directly start native audio stream synchronously within user gesture on mounted DOM element
+    const audio = audioPlayerRef.current;
+    if (audio) {
+      audio.src = `/api/tts?text=${encodeURIComponent(all[0].text)}`;
+      audio.play().catch((err) => console.warn('Sync audio play error on startSpeech:', err));
+    }
+
     playChunk(0);
-  }, [post, requestWakeLock, setupMediaSession, playChunk, SILENT_WAV]);
+  }, [post, requestWakeLock, setupMediaSession, playChunk]);
 
   const toggleSpeech = () => {
     if (isSpeaking) {
@@ -733,6 +687,14 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs">
+      {/* Real DOM HTML5 Audio Element for native background and lockscreen playback on Android */}
+      <audio
+        ref={audioPlayerRef}
+        id="5lb-article-audio-player"
+        playsInline
+        preload="auto"
+        className="hidden"
+      />
       <div className="relative w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-3xl bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
         {/* Sticky Reader Toolbar */}
         <div className="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
