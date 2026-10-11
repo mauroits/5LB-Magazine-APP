@@ -27,12 +27,20 @@ app.get('/api/feed', async (req, res) => {
       targetUrl += `&q=${encodeURIComponent(q)}`;
     }
 
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': '5LB-Magazine-PWA/1.0 (+https://5lb.eu)',
-        Accept: 'application/json',
-      },
-    });
+    const ifModifiedSince = req.headers['if-modified-since'];
+    const fetchHeaders: Record<string, string> = {
+      'User-Agent': '5LB-Magazine-PWA/1.0 (+https://5lb.eu)',
+      Accept: 'application/json',
+    };
+    if (ifModifiedSince) {
+      fetchHeaders['If-Modified-Since'] = ifModifiedSince;
+    }
+
+    const response = await fetch(targetUrl, { headers: fetchHeaders });
+
+    if (response.status === 304) {
+      return res.status(304).end();
+    }
 
     if (!response.ok) {
       return res.status(response.status).json({
@@ -53,8 +61,8 @@ app.get('/api/feed', async (req, res) => {
       });
     }
 
-    // Cache for 60 seconds on client, 300 seconds on CDN
-    res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300');
+    // Cache for 300 seconds (5 min) on client, 900 seconds (15 min) on CDN to prevent excessive Blogger requests
+    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=900');
     return res.json(data);
   } catch (error: any) {
     console.error('Error fetching Blogger feed:', error);
@@ -62,16 +70,24 @@ app.get('/api/feed', async (req, res) => {
   }
 });
 
-// Check for updates endpoint (used by notification polling)
+// Check for updates endpoint (used by Periodic Sync & background polling with conditional If-Modified-Since)
 app.get('/api/check-updates', async (req, res) => {
   try {
+    const ifModifiedSince = req.headers['if-modified-since'];
+    const fetchHeaders: Record<string, string> = {
+      'User-Agent': '5LB-Magazine-PWA/1.0 (+https://5lb.eu)',
+      Accept: 'application/json',
+    };
+    if (ifModifiedSince) {
+      fetchHeaders['If-Modified-Since'] = ifModifiedSince;
+    }
+
     const targetUrl = 'https://magazine.5lb.eu/feeds/posts/default?alt=json&max-results=5';
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': '5LB-Magazine-PWA/1.0',
-        Accept: 'application/json',
-      },
-    });
+    const response = await fetch(targetUrl, { headers: fetchHeaders });
+
+    if (response.status === 304) {
+      return res.status(304).end();
+    }
 
     if (!response.ok) {
       return res.status(response.status).json({ error: 'Failed to fetch latest post' });
@@ -91,10 +107,33 @@ app.get('/api/check-updates', async (req, res) => {
       return res.json({ hasNew: false });
     }
 
+    const postDate = new Date(entry.updated?.$t || entry.published?.$t).getTime();
+    if (ifModifiedSince) {
+      const sinceTime = new Date(ifModifiedSince).getTime();
+      if (!isNaN(sinceTime) && postDate <= sinceTime) {
+        return res.status(304).end();
+      }
+    }
+
+    let link = 'https://magazine.5lb.eu';
+    if (Array.isArray(entry.link)) {
+      const altLink = entry.link.find((l: any) => l.rel === 'alternate' && l.type === 'text/html');
+      if (altLink && altLink.href) link = altLink.href;
+    }
+
+    const rawContent = entry.summary?.$t || entry.content?.$t || '';
+    const summary = rawContent.replace(/<[^>]+>/g, ' ').slice(0, 150).trim();
+    const lastModified = new Date(postDate).toUTCString();
+
+    res.setHeader('Last-Modified', lastModified);
+    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=900');
+
     return res.json({
       hasNew: true,
       id: entry.id?.$t,
       title: entry.title?.$t,
+      summary,
+      link,
       published: entry.published?.$t,
       updated: entry.updated?.$t,
     });

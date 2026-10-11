@@ -11,6 +11,7 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { NavItem } from '../types';
+import { trackEvent } from '../services/analytics';
 
 interface ExternalLinkModalProps {
   item: NavItem | null;
@@ -30,6 +31,10 @@ export const ExternalLinkModal: React.FC<ExternalLinkModalProps> = ({
   const handleCopy = () => {
     navigator.clipboard.writeText(item.targetUrl || '');
     setCopied(true);
+    trackEvent('copy_link', {
+      link_url: item.targetUrl,
+      link_title: item.label,
+    });
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -71,6 +76,13 @@ export const ExternalLinkModal: React.FC<ExternalLinkModalProps> = ({
               href={item.targetUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => {
+                trackEvent('outbound_click', {
+                  link_url: item.targetUrl,
+                  link_title: item.label,
+                  source: 'webview_topbar',
+                });
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-medium text-xs shadow-sm transition active:scale-95"
               title="Apri pagina web in nuova scheda"
             >
@@ -136,6 +148,13 @@ export const ExternalLinkModal: React.FC<ExternalLinkModalProps> = ({
               href={item.targetUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => {
+                trackEvent('outbound_click', {
+                  link_url: item.targetUrl,
+                  link_title: item.label,
+                  source: 'webview_bottombar',
+                });
+              }}
               className="font-medium text-orange-600 dark:text-orange-400 hover:underline flex items-center gap-1"
             >
               Apri a pagina intera <ExternalLink className="w-3 h-3" />

@@ -13,7 +13,6 @@ import {
   GitFork,
   BookOpen,
   MessageCircle,
-  Hash,
   Bookmark,
   ChevronDown,
   ChevronRight,
@@ -36,8 +35,7 @@ import {
   IconFramework,
   IconHameriano,
   IconAndrogyne,
-  IconCovid19,
-  IconNotebookLM
+  IconCovid19
 } from './CustomIcons';
 import { Logo5LB } from './Logo5LB';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -203,7 +201,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       });
       onClose();
     } else if (item.type === 'link') {
-      if (item.targetUrl) {
+      if (onSelectLink) {
+        onSelectLink(item);
+      } else if (item.targetUrl) {
         window.open(item.targetUrl, '_blank', 'noopener,noreferrer');
       }
       onClose();
@@ -238,16 +238,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
-      {/* Slide-out Sidebar Drawer */}
+      {/* Slide-out Sidebar Drawer on mobile / Stationary Full-Height Sidebar reaching the top on desktop & landscape tablet (lg+) */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-80 max-w-[85vw] lg:static lg:z-10 lg:w-72 xl:w-80 lg:translate-x-0 bg-white dark:bg-slate-900 shadow-2xl lg:shadow-none flex flex-col border-r border-slate-200 dark:border-slate-800 transition-transform duration-300 ease-in-out ${
+        className={`fixed top-0 bottom-0 left-0 z-50 w-80 max-w-[85vw] lg:static lg:z-20 lg:w-72 xl:w-80 lg:h-screen lg:shrink-0 lg:translate-x-0 bg-white dark:bg-slate-900 shadow-2xl lg:shadow-none flex flex-col border-r border-slate-200 dark:border-slate-800 transition-transform duration-300 ease-in-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        {/* Drawer Header (Official 5LB Logo from user image) */}
-        <div className="relative bg-[#0b1226] px-5 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] pb-5 text-white shadow-md">
+        {/* Drawer Header (Official 5LB Logo at the very top of the page) */}
+        <div className="relative bg-[#0e1838] px-5 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] pb-4 text-white shadow-md border-b border-slate-800/80 shrink-0">
           <div className="flex items-center justify-between">
-            {/* Official Logo rendered clean without redundant text */}
+            {/* Official Logo rendered clean without duplicate headers */}
             <Logo5LB className="h-8 sm:h-9" />
 
             <div className="flex items-center gap-1">
@@ -267,13 +267,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Quick Chiedi button in header banner */}
+          {/* Quick Chiedi button in sidebar header */}
           <button
             onClick={() => {
               onOpenNotebook();
               onClose();
             }}
-            className="mt-4 w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600/90 to-indigo-600/90 hover:from-blue-600 hover:to-indigo-600 text-white shadow-sm transition group cursor-pointer"
+            className="mt-3.5 w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600/90 to-indigo-600/90 hover:from-blue-600 hover:to-indigo-600 text-white shadow-sm transition group cursor-pointer"
           >
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-300 group-hover:rotate-12 transition-transform shrink-0" />
@@ -305,7 +305,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   key={f.id}
                   onClick={() => handleItemClick(item)}
-                  className={`w-full flex items-center justify-between px-5 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                  className={`w-full flex items-center justify-between px-5 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer ${
                     active ? 'bg-orange-50/80 dark:bg-orange-950/30 font-semibold' : ''
                   }`}
                 >
@@ -375,7 +375,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <button
                           key={item.id}
                           onClick={() => handleItemClick(item)}
-                          className={`w-full flex items-center justify-between px-5 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/50 group ${
+                          className={`w-full flex items-center justify-between px-5 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/50 group cursor-pointer ${
                             active
                               ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 font-semibold border-r-4 border-orange-500'
                               : 'text-slate-800 dark:text-slate-200'
@@ -412,13 +412,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
         </div>
 
-        {/* PWA Install Button inside menu drawer */}
-        <div className="px-4 py-2 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/60 dark:border-slate-800/60">
+        {/* PWA Install / Status Indicator LED in sidebar (App Attiva <-> APP OFFLINE) */}
+        <div className="px-4 py-2.5 bg-slate-50/80 dark:bg-slate-900/80 border-t border-slate-200/80 dark:border-slate-800/80 shrink-0">
           <PWAInstallButton />
         </div>
 
         {/* Bottom Drawer Footer: Info page link + Cookie settings + Theme switch */}
-        <div className="p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom,0px))] bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 gap-1.5">
+        <div className="p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom,0px))] bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 gap-1.5 shrink-0">
           <div className="flex items-center gap-1 min-w-0">
             <button
               onClick={() => {

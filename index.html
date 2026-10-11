@@ -26,21 +26,20 @@
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
 
-      // Legge il consenso memorizzato o imposta default negato
       var savedConsent = null;
       try {
         var raw = localStorage.getItem('5lb_cookie_consent_v1');
         if (raw) savedConsent = JSON.parse(raw);
       } catch(e) {}
 
-      var analyticsState = (savedConsent && savedConsent.analytics === true) ? 'granted' : 'denied';
+      var isAccepted = (savedConsent && savedConsent.analytics === true);
 
+      // Default standard Consent Mode v2: 'denied' finché l'utente non accetta
       gtag('consent', 'default', {
-        'analytics_storage': analyticsState,
+        'analytics_storage': isAccepted ? 'granted' : 'denied',
         'ad_storage': 'denied',
         'ad_user_data': 'denied',
-        'ad_personalization': 'denied',
-        'wait_for_update': 500
+        'ad_personalization': 'denied'
       });
 
       gtag('js', new Date());

@@ -7,7 +7,7 @@ export const GA_MEASUREMENT_ID = 'G-F8YBSNXCDW';
 export const COOKIE_CONSENT_KEY = '5lb_cookie_consent_v1';
 
 export interface CookieConsentSettings {
-  necessary: boolean; // Always true
+  necessary: boolean; // Sempre true
   analytics: boolean;
   hasChosen: boolean;
   timestamp: string;
@@ -43,7 +43,7 @@ export function getStoredCookieConsent(): CookieConsentSettings | null {
 }
 
 /**
- * Salva le impostazioni di consenso ed aggiorna Google Consent Mode v2
+ * Salva le impostazioni di consenso ed aggiorna la Consent Mode v2 di Google Analytics
  */
 export function saveCookieConsent(analyticsGranted: boolean): CookieConsentSettings {
   const settings: CookieConsentSettings = {
@@ -59,16 +59,19 @@ export function saveCookieConsent(analyticsGranted: boolean): CookieConsentSetti
     console.warn('Errore salvataggio consenso cookie:', err);
   }
 
-  // Aggiorna Google Consent Mode v2 (senza disabilitare lo script, consentendo modellazione e cookieless ping)
+  // Aggiorna Google Consent Mode v2
   applyConsentToGtag(analyticsGranted);
 
   return settings;
 }
 
 /**
- * Applica lo stato di consenso al dataLayer di Google Analytics (Consent Mode v2)
- * Se l'utente rifiuta ('denied'), lo script NON viene bloccato:
- * Google Analytics riceverà i ping anonimi privi di cookie permettendo la modellazione comportamentale.
+ * Applica lo stato di consenso standard (Google Consent Mode v2):
+ * - Se analyticsGranted === true:
+ *     analytics_storage: 'granted' -> GA4 traccia con cookie persistenti e identificatori di sessione.
+ * - Se analyticsGranted === false (Rifiutato o Default):
+ *     analytics_storage: 'denied'  -> GA4 non scrive né legge cookie, inviando esclusivamente ping
+ *     anonimi (gcs=G100) per la modellazione comportamentale nei report generali, escludendo il report In Tempo Reale.
  */
 export function applyConsentToGtag(analyticsGranted: boolean): void {
   if (typeof window === 'undefined') return;
@@ -91,35 +94,19 @@ export function applyConsentToGtag(analyticsGranted: boolean): void {
 }
 
 /**
- * Inizializza Google Analytics e applica il consenso memorizzato all'avvio dell'applicazione
+ * Inizializza Google Analytics all'avvio dell'applicazione applicando il consenso salvato
  */
 export function initAnalyticsWithSavedConsent(): void {
-  if (typeof window === 'undefined') return;
-
-  window.dataLayer = window.dataLayer || [];
-  if (!window.gtag) {
-    window.gtag = function () {
-      window.dataLayer.push(arguments);
-    };
-  }
-
   const saved = getStoredCookieConsent();
-  const consentState = (saved && saved.hasChosen && saved.analytics) ? 'granted' : 'denied';
-
-  // Assicura l'aggiornamento dello stato di consenso in Consent Mode v2
-  window.gtag('consent', 'update', {
-    analytics_storage: consentState,
-    ad_storage: 'denied',
-    ad_user_data: 'denied',
-    ad_personalization: 'denied',
-  });
+  const isGranted = Boolean(saved && saved.hasChosen && saved.analytics);
+  applyConsentToGtag(isGranted);
 }
 
 /**
  * Invia un evento di visualizzazione pagina (page_view) a Google Analytics.
- * Funziona sempre con Consent Mode v2:
- * - Se consenso concesso: tracciamento standard con cookie.
- * - Se consenso negato: cookieless ping anonimo per tracciamento modellato GA4.
+ * In conformità con la Consent Mode v2:
+ * - Con consenso: registra la pagina con cookie normali.
+ * - Senza consenso / rifiuto: invia un ping totalmente anonimo (cookieless) per le stime dei report generali.
  */
 export function trackPageView(pagePath: string, pageTitle?: string): void {
   if (typeof window === 'undefined') return;
@@ -134,14 +121,14 @@ export function trackPageView(pagePath: string, pageTitle?: string): void {
   const title = pageTitle || document.title;
   const location = window.location.origin + pagePath;
 
-  // Aggiorna configurazione attiva di GA4
+  // Aggiorna percorso e titolo per la pagina virtuale
   window.gtag('config', GA_MEASUREMENT_ID, {
     page_path: pagePath,
     page_title: title,
     page_location: location,
   });
 
-  // Notifica l'evento page_view per i report tempo reale e pagine/schermate
+  // Invia evento esplicito page_view
   window.gtag('event', 'page_view', {
     page_path: pagePath,
     page_title: title,
@@ -150,9 +137,7 @@ export function trackPageView(pagePath: string, pageTitle?: string): void {
 }
 
 /**
- * Traccia un evento personalizzato in Google Analytics.
- * NON blocca mai la chiamata: la Consent Mode v2 di Google gestisce nativamente
- * la conformità privacy rimuovendo i cookie quando il consenso è negato.
+ * Traccia un evento personalizzato in Google Analytics (es. apertura webview, click link, preferiti, ecc.)
  */
 export function trackEvent(eventName: string, eventParams: Record<string, any> = {}): void {
   if (typeof window === 'undefined') return;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Calendar,
   Clock,
@@ -63,8 +63,30 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   onMarkAllAsRead,
 }) => {
   const [viewMode, setViewMode] = useState<'card' | 'compact'>('card');
-  const [isShuffleActive, setIsShuffleActive] = useState(false);
-  const [shuffleKey, setShuffleKey] = useState(0);
+  const [sortMode, setSortMode] = useState<'chronological' | 'shuffle'>(() => {
+    try {
+      const saved = localStorage.getItem('5lb_sort_mode_v1');
+      if (saved === 'shuffle' || saved === 'chronological') return saved;
+    } catch (e) {
+      // ignore
+    }
+    return 'chronological';
+  });
+
+  const [shuffledIds, setShuffledIds] = useState<string[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('5lb_shuffled_ids_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return [];
+  });
+
+  const [isShuffleSpinning, setIsShuffleSpinning] = useState(false);
 
   const [isAiBannerDismissed, setIsAiBannerDismissed] = useState<boolean>(() => {
     try {
@@ -83,30 +105,95 @@ export const ArticleList: React.FC<ArticleListProps> = ({
     }
   };
 
-  const handleToggleShuffle = () => {
-    if (!isShuffleActive) {
-      setShuffleKey((k) => k + 1);
-      setIsShuffleActive(true);
-    } else {
-      setIsShuffleActive(false);
+  const handleSelectChronological = () => {
+    setSortMode('chronological');
+    try {
+      localStorage.setItem('5lb_sort_mode_v1', 'chronological');
+    } catch (e) {
+      // ignore
     }
   };
 
-  // Articles list sorted or shuffled
-  const displayedPosts = useMemo(() => {
-    if (!isShuffleActive) {
-      return [...posts].sort(
-        (a, b) => new Date(b.published).getTime() - new Date(a.published).getTime()
-      );
+  // Every time shuffle is pressed (even if already selected), generate a new random shuffle order
+  const handleTriggerShuffle = () => {
+    setSortMode('shuffle');
+    try {
+      localStorage.setItem('5lb_sort_mode_v1', 'shuffle');
+    } catch (e) {
+      // ignore
     }
-    // Fisher-Yates shuffle
-    const arr = [...posts];
-    for (let i = arr.length - 1; i > 0; i--) {
+
+    const ids = posts.map((p) => p.id);
+    for (let i = ids.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+      [ids[i], ids[j]] = [ids[j], ids[i]];
     }
-    return arr;
-  }, [posts, isShuffleActive, shuffleKey]);
+
+    setShuffledIds(ids);
+    try {
+      sessionStorage.setItem('5lb_shuffled_ids_v1', JSON.stringify(ids));
+    } catch (e) {
+      // ignore
+    }
+
+    // Brief tactile spin animation
+    setIsShuffleSpinning(true);
+    setTimeout(() => setIsShuffleSpinning(false), 450);
+  };
+
+  // If in shuffle mode but shuffledIds is empty (e.g. freshly toggled), populate with a shuffle
+  useEffect(() => {
+    if (sortMode === 'shuffle' && posts.length > 0 && shuffledIds.length === 0) {
+      const ids = posts.map((p) => p.id);
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+      setShuffledIds(ids);
+    }
+  }, [sortMode, posts, shuffledIds.length]);
+
+  // Articles list sorted chronologically or in stable shuffle order
+  const displayedPosts = useMemo(() => {
+    if (sortMode === 'chronological') {
+      return [...posts].sort((a, b) => {
+        const diff = new Date(b.published).getTime() - new Date(a.published).getTime();
+        if (diff !== 0) return diff;
+        return b.id.localeCompare(a.id);
+      });
+    }
+
+    // Shuffle mode: display posts strictly according to stable shuffledIds order
+    // to prevent unwanted re-shuffling on background sync or app switching
+    if (shuffledIds.length === 0) {
+      return posts;
+    }
+
+    const postMap = new Map<string, BloggerPost>();
+    for (const p of posts) {
+      postMap.set(p.id, p);
+    }
+
+    const result: BloggerPost[] = [];
+    const includedIds = new Set<string>();
+
+    for (const id of shuffledIds) {
+      const p = postMap.get(id);
+      if (p) {
+        result.push(p);
+        includedIds.add(id);
+      }
+    }
+
+    // If new posts arrived (e.g. loaded more or newly fetched), stably append them
+    for (const p of posts) {
+      if (!includedIds.has(p.id)) {
+        result.push(p);
+      }
+    }
+
+    return result;
+  }, [posts, sortMode, shuffledIds]);
 
   // Clean skeleton loading view instead of blocking splash screen
   if (isLoading && posts.length === 0) {
@@ -147,7 +234,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {displayedPosts.length} {displayedPosts.length === 1 ? 'articolo trovato' : 'articoli trovati'}
-              {isShuffleActive && ' • Casuale'}
+              {sortMode === 'shuffle' && ' • Casuale'}
             </p>
           </div>
 
@@ -175,25 +262,40 @@ export const ArticleList: React.FC<ArticleListProps> = ({
           )}
         </div>
 
-        {/* Right side controls: Shuffle + Mark all as read + View toggle */}
+        {/* Right side controls: Order toggle (Clock / Shuffle) + Mark all as read + View toggle (Card / Compact) */}
         <div className="flex items-center gap-2">
-          {/* Shuffle toggle button */}
-          <button
-            onClick={handleToggleShuffle}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition active:scale-95 cursor-pointer ${
-              isShuffleActive
-                ? 'bg-orange-600 text-white shadow-xs ring-2 ring-orange-400/40'
-                : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-orange-600 dark:hover:text-orange-400'
-            }`}
-            title={
-              isShuffleActive
-                ? 'Disattiva ordine casuale (torna all’ordine cronologico)'
-                : 'Mescola articoli in ordine casuale (Shuffle)'
-            }
-          >
-            <Shuffle className={`w-3.5 h-3.5 ${isShuffleActive ? 'rotate-180 transition-transform' : ''}`} />
-            <span className="hidden sm:inline">Shuffle</span>
-          </button>
+          {/* Paired sort controls: Ordine cronologico (Orologio) & Ordine casuale (Shuffle) */}
+          <div className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-xl">
+            <button
+              onClick={handleSelectChronological}
+              className={`flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition cursor-pointer active:scale-95 ${
+                sortMode === 'chronological'
+                  ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+              title="Ordine cronologico (dal più recente)"
+            >
+              <Clock className="w-4 h-4" />
+              <span className="hidden sm:inline">Ultime</span>
+            </button>
+
+            <button
+              onClick={handleTriggerShuffle}
+              className={`flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition cursor-pointer active:scale-95 ${
+                sortMode === 'shuffle'
+                  ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+              title={
+                sortMode === 'shuffle'
+                  ? 'Mescola di nuovo in un nuovo ordine casuale'
+                  : 'Ordine casuale (Shuffle)'
+              }
+            >
+              <Shuffle className={`w-4 h-4 transition-transform duration-300 ${isShuffleSpinning ? 'rotate-180 scale-110' : ''}`} />
+              <span className="hidden sm:inline">Shuffle</span>
+            </button>
+          </div>
 
           {activeFilter.type === 'quick' && activeFilter.id === 'unread' && displayedPosts.length > 0 && onMarkAllAsRead && (
             <button

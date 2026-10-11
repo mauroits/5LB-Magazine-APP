@@ -19,6 +19,7 @@ import {
 import { BloggerPost } from '../types';
 import { formatItalianDate } from '../services/bloggerFeed';
 import { highlightHtmlContent } from '../utils/searchUtils';
+import { trackEvent } from '../services/analytics';
 
 interface ArticleModalProps {
   post: BloggerPost | null;
@@ -64,22 +65,108 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     }
   }, [post?.id, initialSearchQuery]);
 
-  // Refs for mobile speech stability (prevent GC & buffer timeouts)
+  // Audio & Background playback refs
+  const silentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const wakeLockRef = useRef<any>(null);
+  const keepAliveTimerRef = useRef<any>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const chunksRef = useRef<string[]>([]);
   const chunkIndexRef = useRef<number>(0);
   const isPlayingRef = useRef<boolean>(false);
 
-  // Stop speech synthesis on unmount or when modal closes or post changes
-  useEffect(() => {
-    return () => {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
+  // Screen Wake Lock API to prevent screen timeout while listening
+  const requestWakeLock = useCallback(async () => {
+    if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      } catch {
+        // Wake lock may fail if battery saver is active or not allowed
       }
-      isPlayingRef.current = false;
-      setIsSpeaking(false);
-    };
-  }, [post]);
+    }
+  }, []);
+
+  const releaseWakeLock = useCallback(async () => {
+    if (wakeLockRef.current) {
+      try {
+        await wakeLockRef.current.release();
+      } catch {
+        // ignore
+      }
+      wakeLockRef.current = null;
+    }
+  }, []);
+
+  // HTML5 Silent audio loop carrier to keep background audio pipeline alive on iOS & Android
+  const startSilentAudio = useCallback(() => {
+    try {
+      if (!silentAudioRef.current) {
+        // 1-second 8000Hz PCM silence WAV
+        const audio = new Audio(
+          'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YRAAAAAAAAAAAAAAAAAAAAAA'
+        );
+        audio.loop = true;
+        audio.volume = 0.01; // Non-zero volume ensures iOS marks audio session as active
+        silentAudioRef.current = audio;
+      }
+      silentAudioRef.current.play().catch(() => {});
+    } catch {
+      // Audio element fallback
+    }
+  }, []);
+
+  const stopSilentAudio = useCallback(() => {
+    if (silentAudioRef.current) {
+      try {
+        silentAudioRef.current.pause();
+        silentAudioRef.current.currentTime = 0;
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  // MediaSession integration for Lock Screen controls
+  const setupMediaSession = useCallback((articleTitle: string) => {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: articleTitle,
+          artist: '5LB Magazine — Lettura vocale',
+          album: 'magazine.5lb.eu',
+          artwork: [
+            { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          ],
+        });
+
+        navigator.mediaSession.setActionHandler('play', () => {
+          if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
+          if (silentAudioRef.current && silentAudioRef.current.paused) {
+            silentAudioRef.current.play().catch(() => {});
+          }
+        });
+
+        navigator.mediaSession.setActionHandler('pause', () => {
+          if ('speechSynthesis' in window) {
+            window.speechSynthesis.pause();
+          }
+          if (silentAudioRef.current) {
+            silentAudioRef.current.pause();
+          }
+        });
+
+        navigator.mediaSession.setActionHandler('stop', () => {
+          stopSpeech();
+        });
+
+        navigator.mediaSession.playbackState = 'playing';
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
 
   const stopSpeech = useCallback(() => {
     if ('speechSynthesis' in window) {
@@ -90,7 +177,49 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     chunksRef.current = [];
     chunkIndexRef.current = 0;
     utteranceRef.current = null;
-  }, []);
+
+    if (keepAliveTimerRef.current) {
+      clearInterval(keepAliveTimerRef.current);
+      keepAliveTimerRef.current = null;
+    }
+
+    stopSilentAudio();
+    releaseWakeLock();
+
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'none';
+      } catch {
+        // ignore
+      }
+    }
+  }, [stopSilentAudio, releaseWakeLock]);
+
+  // Stop speech synthesis on unmount or when modal closes or post changes
+  useEffect(() => {
+    return () => {
+      stopSpeech();
+    };
+  }, [post?.id, stopSpeech]);
+
+  // Keep background speech synthesis alive across screen lock / visibility changes
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (isPlayingRef.current) {
+        if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+        if (document.visibilityState === 'visible') {
+          requestWakeLock();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [requestWakeLock]);
 
   const speakNextChunk = useCallback(() => {
     if (!isPlayingRef.current || !('speechSynthesis' in window)) return;
@@ -243,6 +372,21 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     isPlayingRef.current = true;
     setIsSpeaking(true);
 
+    // Start background audio carrier, screen wake lock & lock screen controls
+    startSilentAudio();
+    setupMediaSession(post.title);
+    requestWakeLock();
+
+    // Keepalive watchdog for mobile background execution
+    if (keepAliveTimerRef.current) clearInterval(keepAliveTimerRef.current);
+    keepAliveTimerRef.current = setInterval(() => {
+      if (isPlayingRef.current && 'speechSynthesis' in window) {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      }
+    }, 3500);
+
     window.speechSynthesis.cancel();
     // 60ms delay ensures iOS/Android WebKit clears audio pipeline before starting
     setTimeout(() => {
@@ -296,7 +440,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl text-xs">
             <button
               onClick={() => setFontSize((s) => Math.max(14, s - 1))}
-              className="p-1 rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700"
+              className="p-1 rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 cursor-pointer"
               title="Riduci dimensione testo"
             >
               <Minus className="w-3.5 h-3.5" />
@@ -306,7 +450,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
             </span>
             <button
               onClick={() => setFontSize((s) => Math.min(24, s + 1))}
-              className="p-1 rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700"
+              className="p-1 rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 cursor-pointer"
               title="Aumenta dimensione testo"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -331,19 +475,23 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
             <button
               onClick={toggleSpeech}
-              className={`p-2 rounded-xl transition ${
+              className={`p-2 rounded-xl transition cursor-pointer ${
                 isSpeaking
                   ? 'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400 animate-pulse'
                   : 'text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
-              title={isSpeaking ? 'Ferma lettura vocale' : 'Ascolta articolo (Sintesi vocale)'}
+              title={
+                isSpeaking
+                  ? 'Ferma lettura vocale'
+                  : 'Ascolta articolo (Lettura vocale attiva anche a schermo spento)'
+              }
             >
               {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
 
             <button
               onClick={() => onToggleFavorite(post.id)}
-              className={`p-2 rounded-xl transition ${
+              className={`p-2 rounded-xl transition cursor-pointer ${
                 isFavorite
                   ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40'
                   : 'text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -355,7 +503,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
             <button
               onClick={handleShare}
-              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               title="Condividi articolo"
             >
               {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Share2 className="w-4 h-4" />}
@@ -365,13 +513,34 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               href={post.link}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 rounded-xl text-slate-500 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              className="p-2 rounded-xl text-slate-500 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               title="Apri articolo originale su magazine.5lb.eu"
             >
               <ExternalLink className="w-4 h-4" />
             </a>
           </div>
         </div>
+
+        {/* Active Speech Background Indicator Bar */}
+        {isSpeaking && (
+          <div className="bg-orange-50 dark:bg-orange-950/60 border-b border-orange-200 dark:border-orange-900/60 px-4 py-2 flex items-center justify-between text-xs text-orange-900 dark:text-orange-200 animate-in fade-in">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+              </span>
+              <span className="font-medium truncate">
+                Lettura vocale attiva — Continua anche a schermo spento
+              </span>
+            </div>
+            <button
+              onClick={stopSpeech}
+              className="font-bold text-orange-700 dark:text-orange-300 hover:underline cursor-pointer ml-2 shrink-0"
+            >
+              Ferma
+            </button>
+          </div>
+        )}
 
         {/* Sticky In-Article Search Bar with Jump Arrows & Counter */}
         {isSearchOpen && (
@@ -528,6 +697,12 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 const href = target.getAttribute('href');
                 if (href && !href.startsWith('#')) {
                   e.preventDefault();
+                  trackEvent('article_link_click', {
+                    link_url: href,
+                    link_text: target.innerText?.trim() || '',
+                    article_title: post.title,
+                    article_id: post.id,
+                  });
                   window.open(href, '_blank', 'noopener,noreferrer');
                 }
               }
@@ -548,6 +723,13 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               href={post.link}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => {
+                trackEvent('open_original_blogger_post', {
+                  link_url: post.link,
+                  article_title: post.title,
+                  article_id: post.id,
+                });
+              }}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-xs"
             >
               <span>Vai a magazine.5lb.eu</span>

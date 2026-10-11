@@ -1,10 +1,34 @@
 import { BloggerPost } from '../types';
 import { postMatchesExactPhrase } from '../utils/searchUtils';
 import { PUBLICATION_DELAY_HOURS } from '../config/navigation';
+import { FEED_SYNC_CONFIG } from '../config/syncConfig';
+import { syncNewestPostWithSW } from './periodicSyncService';
 
 const FEED_CACHE_KEY = '5lb_magazine_posts_cache_v1';
+const FEED_CACHE_TIMESTAMP_KEY = '5lb_magazine_feed_timestamp_v1';
 const READ_POSTS_KEY = '5lb_read_posts_v1';
 const FAVORITE_POSTS_KEY = '5lb_favorite_posts_v1';
+
+// Minimum interval between automatic background fetches from Blogger (configured in syncConfig.ts)
+export const FEED_CACHE_TTL_MS = FEED_SYNC_CONFIG.FOREGROUND_POLL_MS;
+
+export function getFeedCacheTimestamp(): number {
+  try {
+    const raw = localStorage.getItem(FEED_CACHE_TIMESTAMP_KEY);
+    if (raw) return parseInt(raw, 10) || 0;
+  } catch (e) {
+    // ignore
+  }
+  return 0;
+}
+
+export function saveFeedCacheTimestamp(ts: number = Date.now()): void {
+  try {
+    localStorage.setItem(FEED_CACHE_TIMESTAMP_KEY, ts.toString());
+  } catch (e) {
+    // ignore
+  }
+}
 
 /**
  * Upgrade low-resolution thumbnails to high-definition:
@@ -200,10 +224,25 @@ export async function fetchBloggerPosts(options?: {
     };
   }
 
+  // Sustainable rate check: if fetching general feed (page 1) without explicit forceRefresh,
+  // return cache if it was updated recently (< FEED_CACHE_TTL_MS, 15 min) to prevent repeated calls
+  if (!forceRefresh && !category && !q && startIndex === 1 && cachedPosts.length > 0) {
+    const lastFetch = getFeedCacheTimestamp();
+    const isCacheFresh = lastFetch > 0 && Date.now() - lastFetch < FEED_CACHE_TTL_MS;
+    if (isCacheFresh) {
+      return {
+        posts: cachedPosts.slice(0, maxResults),
+        totalResults: cachedPosts.length,
+        hasMore: cachedPosts.length >= maxResults,
+      };
+    }
+  }
+
   // If forceRefresh is requested on general feed, clear cache entry
   if (forceRefresh && !category && !q && startIndex === 1) {
     try {
       localStorage.removeItem(FEED_CACHE_KEY);
+      localStorage.removeItem(FEED_CACHE_TIMESTAMP_KEY);
       cachedPosts = [];
     } catch (e) {
       // ignore
@@ -222,7 +261,24 @@ export async function fetchBloggerPosts(options?: {
       proxyUrl += `&q=${encodeURIComponent(q)}`;
     }
 
-    const res = await fetch(proxyUrl, { headers: { Accept: 'application/json' } });
+    const fetchHeaders: Record<string, string> = { Accept: 'application/json' };
+    if (!category && !q && startIndex === 1 && cachedPosts.length > 0 && cachedPosts[0].published && !forceRefresh) {
+      fetchHeaders['If-Modified-Since'] = new Date(cachedPosts[0].published).toUTCString();
+    }
+
+    const res = await fetch(proxyUrl, { headers: fetchHeaders });
+
+    // Handle 304 Not Modified -> Feed is completely up to date! Return cached posts immediately
+    if (res.status === 304 && cachedPosts.length > 0) {
+      saveFeedCacheTimestamp(Date.now());
+      let filtered = applyFilter(cachedPosts, category);
+      return {
+        posts: filtered.slice(startIndex - 1, startIndex - 1 + maxResults),
+        totalResults: filtered.length,
+        hasMore: startIndex + maxResults - 1 < filtered.length,
+      };
+    }
+
     const contentType = res.headers.get('content-type') || '';
     if (res.ok && contentType.includes('application/json')) {
       jsonResult = await res.json();
@@ -355,9 +411,15 @@ export async function fetchBloggerPosts(options?: {
           merged.push(post);
         }
       }
-      // Keep sorted by publication date descending
-      merged.sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime());
+      // Keep sorted by publication date descending with id tiebreaker for stable deterministic ordering
+      merged.sort((a, b) => {
+        const diff = new Date(b.published).getTime() - new Date(a.published).getTime();
+        if (diff !== 0) return diff;
+        return b.id.localeCompare(a.id);
+      });
       localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(merged.slice(0, 300)));
+      saveFeedCacheTimestamp(Date.now());
+      syncNewestPostWithSW(merged).catch(() => {});
     } catch (e) {
       console.warn('LocalStorage pieno per la cache dei post:', e);
     }

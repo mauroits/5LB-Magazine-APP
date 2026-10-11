@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Download, X, Smartphone, Globe, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Download, X, Smartphone, Globe, AlertTriangle, ArrowRight, Compass, Share2 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
-import { PWAInstallGuideModal } from './PWAInstallGuideModal';
+import { PWAInstallGuideModal, PWAInstallModalMode } from './PWAInstallGuideModal';
 
 export const PWAInstallBanner: React.FC = () => {
   const {
@@ -9,21 +9,23 @@ export const PWAInstallBanner: React.FC = () => {
     isStandalone,
     isInstalled,
     isIOS,
+    isIPad,
+    isIOSSafari,
+    isIOSOtherBrowser,
     isUnsupportedBrowser,
     unsupportedBrowserName,
     install,
-    launchApp,
   } = usePWAInstall();
 
   const [isDismissed, setIsDismissed] = useState<boolean>(() => {
     try {
       return sessionStorage.getItem('5lb_dismiss_pwa_banner') === 'true';
-    } catch (e) {
+    } catch {
       return false;
     }
   });
 
-  const [activeModal, setActiveModal] = useState<'unsupported' | 'ios' | 'launch' | null>(null);
+  const [activeModal, setActiveModal] = useState<PWAInstallModalMode | null>(null);
 
   // If already running inside standalone native PWA or dismissed for this browser session, hide banner
   if (isStandalone || isDismissed) return null;
@@ -32,18 +34,22 @@ export const PWAInstallBanner: React.FC = () => {
     setIsDismissed(true);
     try {
       sessionStorage.setItem('5lb_dismiss_pwa_banner', 'true');
-    } catch (e) {
+    } catch {
       // ignore
     }
   };
 
+  const deviceName = isIPad ? 'iPad' : 'iPhone';
+
   const handleActionClick = () => {
     if (isInstalled && !isInstallable) {
       setActiveModal('launch');
+    } else if (isIOS && isIOSOtherBrowser) {
+      setActiveModal('ios-redirect');
+    } else if (isIOS && isIOSSafari) {
+      setActiveModal('ios');
     } else if (isInstallable) {
       install();
-    } else if (isIOS) {
-      setActiveModal('ios');
     } else if (isUnsupportedBrowser) {
       setActiveModal('unsupported');
     }
@@ -92,29 +98,60 @@ export const PWAInstallBanner: React.FC = () => {
           onClose={() => setActiveModal(null)}
           mode="launch"
           browserName={unsupportedBrowserName}
+          isIPad={isIPad}
         />
       </>
     );
   }
 
-  // Case B: App is not yet installed -> Invite to install
+  // Case B: Not installed yet
+  // Determine banner copy & styling based on device and browser
+  let bannerTitle = 'Stai usando la versione browser';
+  let bannerSubtitle = "Installa l'App per lettura offline e notifiche push";
+  let buttonText = 'Installa App';
+  let ButtonIcon = Download;
+  let isAlertStyle = false;
+
+  if (isIOS && isIOSOtherBrowser) {
+    bannerTitle = `Stai usando ${unsupportedBrowserName || 'Chrome'} su ${deviceName}`;
+    bannerSubtitle = "Su iOS per installare l'app è necessario usare Safari";
+    buttonText = 'Usa Safari';
+    ButtonIcon = Compass;
+    isAlertStyle = true;
+  } else if (isIOS && isIOSSafari) {
+    bannerTitle = `Stai usando Safari su ${deviceName}`;
+    bannerSubtitle = "Aggiungi l'app alla schermata Home per averla a schermo intero";
+    buttonText = 'Installa App';
+    ButtonIcon = Share2;
+  } else if (isUnsupportedBrowser) {
+    bannerTitle = `Stai usando la versione browser (${unsupportedBrowserName || 'alternativo'})`;
+    bannerSubtitle = "Installa l'App per lettura offline e notifiche push";
+    buttonText = 'Info App';
+    ButtonIcon = AlertTriangle;
+    isAlertStyle = true;
+  }
+
   return (
     <>
-      <div className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] left-3 right-3 sm:left-auto sm:right-4 z-40 max-w-md bg-[#0e1838] text-white p-4 rounded-3xl shadow-2xl border border-orange-500/30 flex items-center justify-between gap-3 animate-in slide-in-from-bottom-5">
+      <div className={`fixed bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] left-3 right-3 sm:left-auto sm:right-4 z-40 max-w-md bg-[#0e1838] text-white p-4 rounded-3xl shadow-2xl border ${
+        isAlertStyle ? 'border-amber-500/40' : 'border-orange-500/30'
+      } flex items-center justify-between gap-3 animate-in slide-in-from-bottom-5`}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-2xl bg-orange-600/20 border border-orange-500/40 flex items-center justify-center shrink-0">
-            {isUnsupportedBrowser ? (
-              <AlertTriangle className="w-5 h-5 text-amber-400" />
+          <div className={`w-10 h-10 rounded-2xl ${
+            isAlertStyle ? 'bg-amber-600/20 border border-amber-500/40 text-amber-400' : 'bg-orange-600/20 border border-orange-500/40 text-orange-400'
+          } flex items-center justify-center shrink-0`}>
+            {isAlertStyle ? (
+              <AlertTriangle className="w-5 h-5" />
             ) : (
-              <Smartphone className="w-5 h-5 text-orange-400" />
+              <Smartphone className="w-5 h-5" />
             )}
           </div>
           <div className="min-w-0">
             <h4 className="text-xs sm:text-sm font-bold text-white truncate">
-              Stai usando la versione browser
+              {bannerTitle}
             </h4>
             <p className="text-[11px] text-slate-300 truncate">
-              Installa l'App per lettura offline e notifiche push
+              {bannerSubtitle}
             </p>
           </div>
         </div>
@@ -123,22 +160,13 @@ export const PWAInstallBanner: React.FC = () => {
           <button
             onClick={handleActionClick}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs shadow-sm transition active:scale-95 cursor-pointer ${
-              isUnsupportedBrowser
+              isAlertStyle
                 ? 'bg-amber-600 hover:bg-amber-700 text-white'
                 : 'bg-orange-600 hover:bg-orange-700 text-white'
             }`}
           >
-            {isUnsupportedBrowser ? (
-              <>
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Info App</span>
-              </>
-            ) : (
-              <>
-                <Download className="w-3.5 h-3.5" />
-                <span>Installa App</span>
-              </>
-            )}
+            <ButtonIcon className="w-3.5 h-3.5" />
+            <span>{buttonText}</span>
           </button>
 
           <button
@@ -156,6 +184,7 @@ export const PWAInstallBanner: React.FC = () => {
         onClose={() => setActiveModal(null)}
         mode={activeModal || 'unsupported'}
         browserName={unsupportedBrowserName}
+        isIPad={isIPad}
       />
     </>
   );

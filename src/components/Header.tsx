@@ -1,7 +1,6 @@
 import React from 'react';
 import { Menu, Bell, Sparkles, Search, X } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
-import { IconNotebookLM } from './CustomIcons';
 import { Logo5LB } from './Logo5LB';
 
 interface HeaderProps {
@@ -26,10 +25,10 @@ export const Header: React.FC<HeaderProps> = ({
   const [showSearchInput, setShowSearchInput] = React.useState(false);
 
   return (
-    <header className="sticky top-0 z-30 bg-[#0e1838] text-white shadow-md border-b border-slate-800 select-none pt-[env(safe-area-inset-top,0px)]">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 h-15 flex items-center justify-between gap-2">
-        {/* Left: Hamburger menu + Official 5LB Logo only */}
-        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+    <header className="sticky top-0 z-30 bg-[#0e1838] text-white shadow-md border-b border-slate-800 select-none pt-[env(safe-area-inset-top,0px)] shrink-0">
+      <div className="w-full max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 h-15 flex items-center justify-between gap-2">
+        {/* Left: Mobile hamburger menu + Mobile logo only (hidden on desktop/landscape tablet where sidebar is fixed) */}
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={onToggleSidebar}
             aria-label="Apri menu"
@@ -39,9 +38,13 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <div className="flex flex-col justify-center min-w-0">
-            {/* Pure official logo image */}
-            <Logo5LB className="h-7 sm:h-8" />
-            <span className="text-[10px] text-slate-300 sm:text-xs truncate max-w-[130px] sm:max-w-xs font-medium">
+            {/* Pure official logo: VISIBLE ONLY ON MOBILE (< lg) when sidebar is hidden in off-canvas drawer.
+                HIDDEN ON DESKTOP & LANDSCAPE TABLETS (lg+) where the sidebar is fixed and already has the logo at the top */}
+            <div className="lg:hidden">
+              <Logo5LB className="h-7 sm:h-8" />
+            </div>
+
+            <span className="text-xs sm:text-sm lg:text-base font-bold text-white tracking-wide truncate max-w-[140px] sm:max-w-xs lg:max-w-md">
               {currentFilterLabel}
             </span>
           </div>
@@ -109,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* PWA Install Button (always visible on mobile & desktop if not installed) */}
+          {/* PWA Install Button (always visible on mobile & desktop if not installed, or compact status) */}
           <div className="flex items-center">
             <PWAInstallButton compact />
           </div>

@@ -12,6 +12,7 @@ import { InfoModal } from './components/InfoModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { NotebookModal } from './components/NotebookModal';
 import { ExternalLinkModal } from './components/ExternalLinkModal';
+import { TelegramModal } from './components/TelegramModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { CookieConsentModal } from './components/CookieConsentModal';
@@ -36,8 +37,16 @@ import {
   saveReadPostIds,
   getFavoritePostIds,
   saveFavoritePostIds,
-  computeCategoryCounts
+  computeCategoryCounts,
+  FEED_CACHE_TTL_MS,
+  getFeedCacheTimestamp
 } from './services/bloggerFeed';
+import { FEED_SYNC_CONFIG } from './config/syncConfig';
+import {
+  registerPeriodicSync,
+  initSWMessageListener,
+  syncNewestPostWithSW
+} from './services/periodicSyncService';
 import {
   checkForNewPostsAndNotify,
   getStoredNotifications,
@@ -101,6 +110,7 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isNotebookOpen, setIsNotebookOpen] = useState(false);
   const [selectedExternalLink, setSelectedExternalLink] = useState<NavItem | null>(null);
+  const [isTelegramOpen, setIsTelegramOpen] = useState(false);
   const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [isCookieManageMode, setIsCookieManageMode] = useState(false);
 
@@ -150,6 +160,16 @@ export default function App() {
           checkForNewPostsAndNotify(res.posts);
         }
 
+        // Optimization: if incoming posts match existing leading posts exactly,
+        // do not allocate a new array to prevent unnecessary component re-renders
+        const isUnchanged =
+          prev.length >= res.posts.length &&
+          res.posts.length > 0 &&
+          res.posts.every((p, idx) => prev[idx]?.id === p.id && prev[idx]?.title === p.title);
+        if (isUnchanged) {
+          return prev;
+        }
+
         // Merge network posts with existing posts preserving user read/fav status
         const map = new Map<string, BloggerPost>();
         for (const p of prev) map.set(p.id, p);
@@ -161,7 +181,11 @@ export default function App() {
           );
         }
         const merged = Array.from(map.values());
-        merged.sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime());
+        merged.sort((a, b) => {
+          const diff = new Date(b.published).getTime() - new Date(a.published).getTime();
+          if (diff !== 0) return diff;
+          return b.id.localeCompare(a.id);
+        });
         return merged;
       });
 
@@ -177,6 +201,9 @@ export default function App() {
   useEffect(() => {
     initAnalyticsWithSavedConsent();
 
+    // Traccia la visualizzazione iniziale di pagina
+    trackPageView(window.location.pathname || '/', '5LB Magazine');
+
     // Mostra il banner del consenso prima dell'uso se l'utente non ha ancora espresso una scelta
     const savedConsent = getStoredCookieConsent();
     if (!savedConsent || !savedConsent.hasChosen) {
@@ -184,14 +211,34 @@ export default function App() {
       setIsCookieManageMode(false);
     }
 
-    loadFeed();
+    // Listener messaggi Service Worker per navigazione diretta ad articolo su click notifica
+    const cleanupSWListener = initSWMessageListener();
 
-    // Background polling for push updates every 75 seconds
+    // Registra Periodic Background Sync del Service Worker (12 ore, configurabile in syncConfig.ts)
+    registerPeriodicSync().catch(() => {});
+
+    // Sincronizza lo stato iniziale del post più recente con l'IndexedDB del Service Worker
+    if (posts.length > 0) {
+      syncNewestPostWithSW(posts).catch(() => {});
+    }
+
+    // 1) Controllo di aggiornamenti al boot della PWA (chiamata condizionale con If-Modified-Since)
+    loadFeed(false);
+
+    // 2) Se l'app resta aperta: controlla periodicamente ogni 6 ore (FOREGROUND_POLL_MS in syncConfig.ts)
     const interval = setInterval(() => {
-      loadFeed();
-    }, 75000);
+      if (document.visibilityState === 'visible') {
+        const lastFetch = getFeedCacheTimestamp();
+        if (Date.now() - lastFetch >= FEED_SYNC_CONFIG.FOREGROUND_POLL_MS) {
+          loadFeed(false);
+        }
+      }
+    }, 60000); // verifica ogni minuto se sono trascorse le 6 ore mentre l'app è aperta
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      cleanupSWListener();
+    };
   }, [loadFeed]);
 
   // On-demand category loading: populate category list only when selected for the first time
@@ -634,11 +681,23 @@ export default function App() {
   };
 
   const handleOpenNotebook = () => {
+    trackPageView('/webview/notebooklm', 'Google NotebookLM (Webview) — 5LB Magazine');
+    trackEvent('open_webview_link', {
+      link_url: GOOGLE_NOTEBOOK_URL,
+      link_title: 'Google NotebookLM',
+      link_type: 'notebook',
+    });
     openNotebookWithPriority();
   };
 
   const handleOpenTelegram = () => {
-    window.open('https://t.me/s/magazine5LB', '_blank', 'noopener,noreferrer');
+    trackPageView('/webview/telegram', 'Telegram Accade Oggi (Webview) — 5LB Magazine');
+    trackEvent('open_webview_link', {
+      link_url: 'https://t.me/s/magazine5LB',
+      link_title: 'Accade Oggi (Telegram)',
+      link_type: 'telegram',
+    });
+    setIsTelegramOpen(true);
   };
 
   // Online archive search handler: calls Blogger API and imports found articles into local state
@@ -719,49 +778,63 @@ export default function App() {
   }, [isSearchingOnline]);
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col font-sans">
-      {/* Top Header */}
-      <Header
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+    <div className="min-h-screen h-screen bg-slate-100 dark:bg-slate-950 flex font-sans overflow-hidden">
+      {/* Responsive Drawer on mobile / Stationary Full-Height Sidebar reaching the top on desktop & landscape tablet (lg+) */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        sections={sections}
+        activeFilter={activeFilter}
+        onSelectFilter={(f) => {
+          setActiveFilter(f);
+          setSearchQuery('');
+        }}
+        onSelectLink={(item) => {
+          setSelectedExternalLink(item);
+          if (item.targetUrl) {
+            const domain = (() => {
+              try {
+                return new URL(item.targetUrl).hostname;
+              } catch {
+                return '';
+              }
+            })();
+            trackPageView(`/webview/${encodeURIComponent(item.label)}`, `${item.label} (Webview) — 5LB Magazine`);
+            trackEvent('open_webview_link', {
+              link_url: item.targetUrl,
+              link_title: item.label,
+              link_domain: domain,
+              link_type: 'external_resource',
+            });
+          }
+        }}
         onOpenNotebook={handleOpenNotebook}
-        onOpenNotifications={() => setIsNotificationsOpen(true)}
-        unreadNotificationsCount={unreadNotificationsCount}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        currentFilterLabel={filterTitle}
+        onOpenTelegram={handleOpenTelegram}
+        onOpenInfo={() => setIsInfoOpen(true)}
+        onOpenCookieSettings={() => {
+          setIsCookieManageMode(true);
+          setIsCookieModalOpen(true);
+        }}
+        unreadCount={unreadCount}
+        totalCount={posts.length}
+        favoritesCount={favoritesCount}
+        todayCount={todayCount}
+        categoryCounts={categoryCounts}
+        themeMode={themeMode}
+        onCycleTheme={cycleTheme}
       />
 
-      {/* Main Body (Sidebar + Content) */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Responsive Drawer / Tablet Sidebar */}
-        <Sidebar
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
-          sections={sections}
-          activeFilter={activeFilter}
-          onSelectFilter={(f) => {
-            setActiveFilter(f);
-            setSearchQuery('');
-          }}
-          onSelectLink={(item) => {
-            if (item.targetUrl) {
-              window.open(item.targetUrl, '_blank', 'noopener,noreferrer');
-            }
-          }}
+      {/* Main Content Column (Header + Article Feed) */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {/* Top Header */}
+        <Header
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onOpenNotebook={handleOpenNotebook}
-          onOpenTelegram={handleOpenTelegram}
-          onOpenInfo={() => setIsInfoOpen(true)}
-          onOpenCookieSettings={() => {
-            setIsCookieManageMode(true);
-            setIsCookieModalOpen(true);
-          }}
-          unreadCount={unreadCount}
-          totalCount={posts.length}
-          favoritesCount={favoritesCount}
-          todayCount={todayCount}
-          categoryCounts={categoryCounts}
-          themeMode={themeMode}
-          onCycleTheme={cycleTheme}
+          onOpenNotifications={() => setIsNotificationsOpen(true)}
+          unreadNotificationsCount={unreadNotificationsCount}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          currentFilterLabel={filterTitle}
         />
 
         {/* Article Feed Area */}
@@ -870,10 +943,22 @@ export default function App() {
         onClose={() => setIsNotebookOpen(false)}
       />
 
+      {/* Telegram Accade Oggi In-App Webview Modal */}
+      <TelegramModal
+        isOpen={isTelegramOpen}
+        onClose={() => {
+          setIsTelegramOpen(false);
+          trackPageView(window.location.pathname || '/', '5LB Magazine');
+        }}
+      />
+
       {/* External / Webview Modal */}
       <ExternalLinkModal
         item={selectedExternalLink}
-        onClose={() => setSelectedExternalLink(null)}
+        onClose={() => {
+          setSelectedExternalLink(null);
+          trackPageView(window.location.pathname || '/', '5LB Magazine');
+        }}
       />
 
       {/* PWA Offline indicator */}

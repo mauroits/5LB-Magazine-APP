@@ -11,11 +11,29 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
-function getBrowserEnv() {
+export interface BrowserEnvironment {
+  isStandalone: boolean;
+  isIOS: boolean;
+  isIPad: boolean;
+  isIPhone: boolean;
+  isIOSSafari: boolean;
+  isIOSOtherBrowser: boolean;
+  isAndroid: boolean;
+  isOpera: boolean;
+  isFirefox: boolean;
+  isUnsupported: boolean;
+  browserName: string;
+}
+
+export function getBrowserEnv(): BrowserEnvironment {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return {
       isStandalone: false,
       isIOS: false,
+      isIPad: false,
+      isIPhone: false,
+      isIOSSafari: false,
+      isIOSOtherBrowser: false,
       isAndroid: false,
       isOpera: false,
       isFirefox: false,
@@ -25,32 +43,91 @@ function getBrowserEnv() {
   }
 
   const isStandalone = isRunningStandalone();
-  const ua = window.navigator.userAgent.toLowerCase();
-  const isIOS = /iphone|ipad|ipod/.test(ua);
-  const isAndroid = /android/.test(ua);
-  const isOpera = /opr\/|opera/i.test(ua);
-  const isFirefox = /firefox|fxios/i.test(ua);
+  const ua = (navigator.userAgent || '').toLowerCase();
+  const platform = ((navigator as unknown as { platform?: string }).platform || '').toLowerCase();
+  const maxTouchPoints = navigator.maxTouchPoints || 0;
 
-  // Chrome / Edge / Chromium based check
-  const isChromium = (/chrome|crios|edg\//i.test(ua) || Boolean((window as any).chrome)) && !isOpera;
+  // iPad detection:
+  // 1. Traditional iPad user-agent containing "ipad"
+  // 2. Modern iPadOS 13+ to 18.7+ Safari/Browsers desktop UA (contains "macintosh", platform "macintel", maxTouchPoints > 1)
+  const isIPad =
+    /ipad/i.test(ua) ||
+    ((platform === 'macintel' || /macintosh/i.test(ua)) && maxTouchPoints > 1);
+
+  const isIPhone = /iphone|ipod/i.test(ua);
+  const isIOS = isIPad || isIPhone;
+
+  const isAndroid = /android/i.test(ua);
+  const isOpera = /opr\/|opera|opt\//i.test(ua);
+  const isFirefox = /firefox|fxios/i.test(ua);
+  const isChromeIOS = /crios/i.test(ua);
+  const isEdgeIOS = /edgios/i.test(ua);
+
+  // Third-party browsers on iOS (Chrome CriOS, Firefox FxiOS, Opera, Edge, etc.)
+  const isNonSafariIOS = isChromeIOS || isFirefox || isOpera || isEdgeIOS || /duckduckgo|brave/i.test(ua);
+
+  // Safari on iOS / iPadOS: has "safari" & "version/" and is not one of the third-party browsers
+  const isIOSSafari = isIOS && /version\/.*safari/i.test(ua) && !isNonSafariIOS;
+  const isIOSOtherBrowser = isIOS && !isIOSSafari;
+
+  // Chromium check for Android & Desktop
+  const isChromium =
+    (/chrome|edg\//i.test(ua) || Boolean((window as unknown as { chrome?: unknown }).chrome)) &&
+    !isOpera &&
+    !isFirefox &&
+    !isIOS;
 
   let isUnsupported = false;
   let browserName = '';
 
-  if (isOpera) {
-    isUnsupported = true;
-    browserName = 'Opera';
-  } else if (isFirefox) {
-    isUnsupported = true;
-    browserName = 'Firefox';
-  } else if (!isIOS && !isChromium) {
-    isUnsupported = true;
-    browserName = 'questo browser';
+  if (isIOS) {
+    if (isChromeIOS) {
+      browserName = 'Chrome';
+    } else if (isFirefox) {
+      browserName = 'Firefox';
+    } else if (isOpera) {
+      browserName = 'Opera';
+    } else if (isEdgeIOS) {
+      browserName = 'Edge';
+    } else if (isIOSSafari) {
+      browserName = 'Safari';
+    } else {
+      browserName = 'questo browser';
+    }
+  } else if (isAndroid) {
+    if (isOpera) {
+      isUnsupported = true;
+      browserName = 'Opera';
+    } else if (isFirefox) {
+      isUnsupported = true;
+      browserName = 'Firefox';
+    } else if (!isChromium) {
+      isUnsupported = true;
+      browserName = 'questo browser';
+    } else {
+      browserName = 'Chrome';
+    }
+  } else {
+    // Desktop or other
+    if (isOpera) {
+      isUnsupported = true;
+      browserName = 'Opera';
+    } else if (isFirefox) {
+      isUnsupported = true;
+      browserName = 'Firefox';
+    } else if (!isChromium && !isIOSSafari) {
+      isUnsupported = true;
+      browserName = 'questo browser';
+    }
   }
 
   return {
     isStandalone,
     isIOS,
+    isIPad,
+    isIPhone,
+    isIOSSafari,
+    isIOSOtherBrowser,
     isAndroid,
     isOpera,
     isFirefox,
@@ -64,25 +141,15 @@ export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isStandalone, setIsStandalone] = useState(initial.isStandalone);
   const [isInstalledOnDevice, setIsInstalledOnDevice] = useState(false);
-  const [isIOS, setIsIOS] = useState(initial.isIOS);
-  const [isAndroid, setIsAndroid] = useState(initial.isAndroid);
-  const [isOpera, setIsOpera] = useState(initial.isOpera);
-  const [isFirefox, setIsFirefox] = useState(initial.isFirefox);
-  const [isUnsupportedBrowser, setIsUnsupportedBrowser] = useState(initial.isUnsupported);
-  const [unsupportedBrowserName, setUnsupportedBrowserName] = useState(initial.browserName);
+  const [env, setEnv] = useState<BrowserEnvironment>(initial);
 
   useEffect(() => {
     // Clear any obsolete localStorage flags that previously caused false "installed" status
     clearLegacyInstalledFlags();
 
-    const env = getBrowserEnv();
-    setIsStandalone(env.isStandalone);
-    setIsIOS(env.isIOS);
-    setIsAndroid(env.isAndroid);
-    setIsOpera(env.isOpera);
-    setIsFirefox(env.isFirefox);
-    setIsUnsupportedBrowser(env.isUnsupported);
-    setUnsupportedBrowserName(env.browserName);
+    const currentEnv = getBrowserEnv();
+    setEnv(currentEnv);
+    setIsStandalone(currentEnv.isStandalone);
 
     // Check Chrome/Android installed related apps API
     detectInstalledRelatedApps().then((installed) => {
@@ -140,12 +207,16 @@ export function usePWAInstall() {
     isStandalone,
     isInstalled,
     isInstalledOnDevice,
-    isIOS,
-    isAndroid,
-    isOpera,
-    isFirefox,
-    isUnsupportedBrowser,
-    unsupportedBrowserName,
+    isIOS: env.isIOS,
+    isIPad: env.isIPad,
+    isIPhone: env.isIPhone,
+    isIOSSafari: env.isIOSSafari,
+    isIOSOtherBrowser: env.isIOSOtherBrowser,
+    isAndroid: env.isAndroid,
+    isOpera: env.isOpera,
+    isFirefox: env.isFirefox,
+    isUnsupportedBrowser: env.isUnsupported,
+    unsupportedBrowserName: env.browserName,
     install,
     launchApp,
   };

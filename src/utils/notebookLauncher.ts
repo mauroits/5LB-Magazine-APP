@@ -18,7 +18,7 @@ export function openNotebookWithPriority(): void {
   const isAndroid = /Android/i.test(ua);
   const isIOS =
     /iPhone|iPad|iPod/i.test(ua) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    ((navigator.platform === 'MacIntel' || /Macintosh/i.test(ua)) && navigator.maxTouchPoints > 1);
 
   if (isAndroid) {
     // Intent Android esplicito con `package=com.android.chrome`:

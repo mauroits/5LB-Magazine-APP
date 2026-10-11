@@ -11,7 +11,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'logo-faviconBLU.png', 'logoBLU_APP.jpg'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'logo-faviconBLU.png', 'logoBLU_APP.jpg', 'sw-sync.js'],
         manifest: {
           id: '/',
           name: '5LB Magazine - La rivista sulle 5 Leggi Biologiche',
@@ -57,6 +57,7 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          importScripts: ['/sw-sync.js'],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/magazine\.5lb\.eu\/feeds\/.*/i,
