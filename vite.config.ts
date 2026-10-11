@@ -15,7 +15,7 @@ export default defineConfig(() => {
         manifest: {
           id: '/',
           name: '5LB Magazine - La rivista sulle 5 Leggi Biologiche',
-          short_name: '5LB Mag',
+          short_name: '5LB Magazine',
           description: 'App ufficiale di 5LB Magazine con risorse formative e informative.',
           theme_color: '#000836',
           background_color: '#000836',
