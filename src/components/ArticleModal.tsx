@@ -222,7 +222,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
   // Audio player & state refs
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-  const blobCacheRef = useRef<Map<number, string>>(new Map());
   const wakeLockRef = useRef<any>(null);
 
   const isPlayingRef = useRef<boolean>(false);
@@ -231,13 +230,24 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const chunksRef = useRef<ArticleChunk[]>([]);
   chunksRef.current = chunks;
 
+  // Calculate cumulative word positions to enable instant seeking to chunks within continuous audio
+  const { offsets, totalWords } = useMemo(() => {
+    let total = 0;
+    const offs = chunks.map((c) => {
+      const start = total;
+      total += c.wordCount;
+      return { start, wordCount: c.wordCount };
+    });
+    return { offsets: offs, totalWords: total || 1 };
+  }, [chunks]);
+
   // Screen Wake Lock API to prevent screen timeout while reading/listening
   const requestWakeLock = useCallback(async () => {
     if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
       try {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
       } catch {
-        // Wake lock may fail if battery saver is active or not allowed
+        // Wake lock may fail if battery saver is active
       }
     }
   }, []);
@@ -254,36 +264,8 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const stopCurrentPlaybackOnly = useCallback(() => {
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
-      audioPlayerRef.current.onended = null;
-      audioPlayerRef.current.onerror = null;
-      audioPlayerRef.current.ontimeupdate = null;
-    }
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {}
-    }
-  }, []);
-
-  // Preload and cache audio Blobs in memory for instant 0ms track transitions on lock screen
-  const prefetchChunkBlob = useCallback(async (idx: number): Promise<string> => {
-    if (blobCacheRef.current.has(idx)) {
-      return blobCacheRef.current.get(idx)!;
-    }
-    const all = chunksRef.current;
-    if (idx < 0 || idx >= all.length) return '';
-    const chunk = all[idx];
-    if (!chunk || !chunk.text.trim()) return '';
-
-    try {
-      const res = await fetch(`/api/tts?text=${encodeURIComponent(chunk.text)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      blobCacheRef.current.set(idx, blobUrl);
-      return blobUrl;
-    } catch {
-      return `/api/tts?text=${encodeURIComponent(chunk.text)}`;
+      audioPlayerRef.current.currentTime = 0;
+      audioPlayerRef.current.src = '';
     }
   }, []);
 
@@ -299,16 +281,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     stopCurrentPlaybackOnly();
     releaseWakeLock();
 
-    // Revoke object URLs to free memory
-    for (const url of blobCacheRef.current.values()) {
-      if (url.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
-      }
-    }
-    blobCacheRef.current.clear();
-
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       try {
         navigator.mediaSession.playbackState = 'none';
@@ -323,14 +295,16 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     };
   }, [post?.id, stopSpeech]);
 
-  // Pre-fetch initial chunks as soon as article chunks are computed
+  // Pre-generate full continuous article audio as soon as article is opened
   useEffect(() => {
-    if (!chunks.length) return;
-    prefetchChunkBlob(0).catch(() => {});
-    if (chunks.length > 1) {
-      prefetchChunkBlob(1).catch(() => {});
-    }
-  }, [chunks, prefetchChunkBlob]);
+    if (!post || !chunks.length) return;
+    const cleanFullText = chunks.map((c) => c.text).join('.\n\n');
+    fetch('/api/tts/prepare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: post.id, text: cleanFullText }),
+    }).catch(() => {});
+  }, [post?.id, chunks]);
 
   const setupMediaSession = useCallback(
     (articleTitle: string, chunkIdx: number, totalChunks: number) => {
@@ -339,7 +313,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           const origin = typeof window !== 'undefined' ? window.location.origin : '';
           navigator.mediaSession.metadata = new MediaMetadata({
             title: articleTitle || '5LB Magazine',
-            artist: `5LB Magazine • Parte ${chunkIdx + 1} di ${totalChunks}`,
+            artist: `5LB Magazine • Blocco ${chunkIdx + 1} di ${totalChunks}`,
             album: 'magazine.5lb.eu',
             artwork: [
               { src: `${origin}/pwa-192x192.png`, sizes: '192x192', type: 'image/png' },
@@ -348,11 +322,11 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           });
 
           navigator.mediaSession.setActionHandler('play', () => {
-            handleTogglePlayPause();
+            handleResume();
           });
 
           navigator.mediaSession.setActionHandler('pause', () => {
-            handleTogglePlayPause();
+            handlePause();
           });
 
           navigator.mediaSession.setActionHandler('stop', () => {
@@ -368,11 +342,25 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           });
 
           try {
-            navigator.mediaSession.setActionHandler('seekbackward', () => {
-              handlePrevChunk();
+            navigator.mediaSession.setActionHandler('seekto', (details) => {
+              if (audioPlayerRef.current && details.seekTime != null) {
+                audioPlayerRef.current.currentTime = details.seekTime;
+              }
             });
-            navigator.mediaSession.setActionHandler('seekforward', () => {
-              handleNextChunk();
+            navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+              if (audioPlayerRef.current) {
+                const step = details.seekOffset || 15;
+                audioPlayerRef.current.currentTime = Math.max(0, audioPlayerRef.current.currentTime - step);
+              }
+            });
+            navigator.mediaSession.setActionHandler('seekforward', (details) => {
+              if (audioPlayerRef.current) {
+                const step = details.seekOffset || 15;
+                audioPlayerRef.current.currentTime = Math.min(
+                  audioPlayerRef.current.duration || 0,
+                  audioPlayerRef.current.currentTime + step
+                );
+              }
             });
           } catch {}
 
@@ -384,192 +372,111 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     []
   );
 
-  const playChunk = useCallback(
-    async (index: number) => {
-      if (!isPlayingRef.current) return;
-      const all = chunksRef.current;
-      if (index < 0 || index >= all.length) {
-        stopSpeech();
-        return;
-      }
+  const handlePause = useCallback(() => {
+    isPausedRef.current = true;
+    setIsPaused(true);
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+    }
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused';
+    }
+  }, []);
 
-      currentChunkIndexRef.current = index;
-      setCurrentChunkIndex(index);
-      setIsPaused(false);
-      isPausedRef.current = false;
-
-      const chunk = all[index];
-      const textToSpeak = chunk?.text;
-      if (!textToSpeak || !textToSpeak.trim()) {
-        const next = index + 1;
-        if (next < all.length) {
-          playChunk(next);
-        } else {
-          stopSpeech();
-        }
-        return;
-      }
-
-      // Pre-fetch following chunks into RAM buffer ahead of time
-      prefetchChunkBlob(index + 1).catch(() => {});
-      prefetchChunkBlob(index + 2).catch(() => {});
-
-      // Update MediaSession with active article & chunk information
-      setupMediaSession(post ? post.title : '5LB Magazine', index, all.length);
-
-      const audio = audioPlayerRef.current;
-      if (audio) {
-        try {
-          setIsLoadingAudio(true);
-
-          let streamUrl = blobCacheRef.current.get(index);
-          if (!streamUrl) {
-            streamUrl = await prefetchChunkBlob(index);
-          }
-
-          audio.src = streamUrl;
-
-          audio.onloadstart = () => setIsLoadingAudio(true);
-          audio.onplaying = () => {
-            setIsLoadingAudio(false);
-            if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-              navigator.mediaSession.playbackState = 'playing';
-            }
-          };
-          audio.oncanplay = () => setIsLoadingAudio(false);
-          audio.onwaiting = () => setIsLoadingAudio(true);
-
-          audio.ontimeupdate = () => {
-            if (
-              typeof navigator !== 'undefined' &&
-              'mediaSession' in navigator &&
-              'setPositionState' in navigator.mediaSession &&
-              audio.duration &&
-              !isNaN(audio.duration) &&
-              isFinite(audio.duration)
-            ) {
-              try {
-                navigator.mediaSession.setPositionState({
-                  duration: audio.duration,
-                  playbackRate: audio.playbackRate || 1,
-                  position: Math.min(audio.currentTime, audio.duration),
-                });
-              } catch {}
-            }
-          };
-
-          audio.onended = () => {
-            if (isPlayingRef.current && !isPausedRef.current) {
-              const next = index + 1;
-              if (next < all.length) {
-                // Immediate 0ms handover using pre-buffered memory blob
-                playChunk(next);
-              } else {
-                stopSpeech();
-              }
-            }
-          };
-
-          audio.onerror = (e) => {
-            setIsLoadingAudio(false);
-            console.warn('Audio playback error on chunk', index, e);
-            // Fallback: If network audio fails, read via client Web Speech API so voice is never silent
-            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-              try {
-                const utterance = new SpeechSynthesisUtterance(textToSpeak);
-                utterance.lang = 'it-IT';
-                utterance.onend = () => {
-                  if (isPlayingRef.current && !isPausedRef.current) {
-                    const next = index + 1;
-                    if (next < all.length) playChunk(next);
-                    else stopSpeech();
-                  }
-                };
-                utterance.onerror = () => {
-                  setIsPaused(true);
-                  isPausedRef.current = true;
-                };
-                window.speechSynthesis.speak(utterance);
-                return;
-              } catch {}
-            }
-            setIsPaused(true);
-            isPausedRef.current = true;
-          };
-
-          await audio.play();
-        } catch (err: any) {
-          console.warn('Audio play exception:', err);
-        }
-      }
-    },
-    [post, stopSpeech, setupMediaSession, prefetchChunkBlob]
-  );
+  const handleResume = useCallback(() => {
+    isPausedRef.current = false;
+    setIsPaused(false);
+    const audio = audioPlayerRef.current;
+    if (audio) {
+      audio.play().catch(() => {});
+    }
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+    }
+  }, []);
 
   const handleTogglePlayPause = useCallback(() => {
     if (isPausedRef.current) {
-      // Resume
-      isPausedRef.current = false;
-      setIsPaused(false);
-      const audio = audioPlayerRef.current;
-      if (audio && audio.src && !audio.ended) {
-        audio.play().catch(() => {});
-      } else {
-        playChunk(currentChunkIndexRef.current);
-      }
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
-      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'playing';
-      }
+      handleResume();
     } else {
-      // Pause
-      isPausedRef.current = true;
-      setIsPaused(true);
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-      }
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking) {
-        window.speechSynthesis.pause();
-      }
-      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'paused';
-      }
+      handlePause();
     }
-  }, [playChunk]);
+  }, [handlePause, handleResume]);
 
   const handleNextChunk = useCallback(() => {
-    const next = currentChunkIndexRef.current + 1;
-    if (next < chunksRef.current.length) {
-      playChunk(next);
+    const audio = audioPlayerRef.current;
+    if (!audio || chunks.length === 0) return;
+    const nextIdx = Math.min(chunks.length - 1, currentChunkIndexRef.current + 1);
+    currentChunkIndexRef.current = nextIdx;
+    setCurrentChunkIndex(nextIdx);
+
+    const duration = audio.duration;
+    if (duration && !isNaN(duration) && duration > 0) {
+      const targetTime = (offsets[nextIdx].start / totalWords) * duration;
+      audio.currentTime = targetTime;
     }
-  }, [playChunk]);
+
+    if (audio.paused) {
+      audio.play().catch(() => {});
+      isPausedRef.current = false;
+      setIsPaused(false);
+    }
+
+    setupMediaSession(post ? post.title : '5LB Magazine', nextIdx, chunks.length);
+  }, [chunks.length, offsets, totalWords, post, setupMediaSession]);
 
   const handlePrevChunk = useCallback(() => {
-    const prev = currentChunkIndexRef.current - 1;
-    if (prev >= 0) {
-      playChunk(prev);
+    const audio = audioPlayerRef.current;
+    if (!audio || chunks.length === 0) return;
+    const prevIdx = Math.max(0, currentChunkIndexRef.current - 1);
+    currentChunkIndexRef.current = prevIdx;
+    setCurrentChunkIndex(prevIdx);
+
+    const duration = audio.duration;
+    if (duration && !isNaN(duration) && duration > 0) {
+      const targetTime = (offsets[prevIdx].start / totalWords) * duration;
+      audio.currentTime = targetTime;
     }
-  }, [playChunk]);
+
+    if (audio.paused) {
+      audio.play().catch(() => {});
+      isPausedRef.current = false;
+      setIsPaused(false);
+    }
+
+    setupMediaSession(post ? post.title : '5LB Magazine', prevIdx, chunks.length);
+  }, [chunks.length, offsets, totalWords, post, setupMediaSession]);
 
   const startSpeech = useCallback(() => {
     if (!post) return;
-    const all = chunksRef.current;
-    if (all.length === 0) return;
+    const audio = audioPlayerRef.current;
+    if (!audio) return;
 
     isPlayingRef.current = true;
     isPausedRef.current = false;
     setIsSpeaking(true);
     setIsPaused(false);
+    setIsLoadingAudio(true);
     currentChunkIndexRef.current = 0;
     setCurrentChunkIndex(0);
 
     requestWakeLock();
-    setupMediaSession(post.title, 0, all.length);
+    setupMediaSession(post.title, 0, chunks.length);
 
-    playChunk(0);
-  }, [post, requestWakeLock, setupMediaSession, playChunk]);
+    // Continuous audio stream of the complete article
+    const streamUrl = `/api/tts/article?id=${encodeURIComponent(post.id)}`;
+    if (!audio.src || !audio.src.includes(`/api/tts/article?id=${encodeURIComponent(post.id)}`)) {
+      audio.src = streamUrl;
+    }
+
+    // CRITICAL: play() is called synchronously within the user touch gesture!
+    audio.play().catch((err) => {
+      console.warn('Audio play exception:', err);
+      setIsLoadingAudio(false);
+      setIsPaused(true);
+      isPausedRef.current = true;
+    });
+  }, [post, chunks.length, requestWakeLock, setupMediaSession]);
 
   const toggleSpeech = () => {
     if (isSpeaking) {
@@ -581,13 +488,13 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
   // Keep background speech alive across screen lock / visibility changes
   useEffect(() => {
-    const handleVisibilityChange = async () => {
+    const handleVisibilityChange = () => {
       if (isPlayingRef.current) {
         if (document.visibilityState === 'visible') {
           requestWakeLock();
-          // Keep UI in sync with audio state without restarting or skipping chunks
-          if (!isPausedRef.current && audioPlayerRef.current && audioPlayerRef.current.paused && !audioPlayerRef.current.ended) {
-            audioPlayerRef.current.play().catch(() => {});
+          const audio = audioPlayerRef.current;
+          if (audio && !isPausedRef.current && audio.paused && !audio.ended) {
+            audio.play().catch(() => {});
           }
         }
       }
@@ -683,6 +590,82 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         playsInline
         preload="auto"
         aria-hidden="true"
+        onLoadStart={() => setIsLoadingAudio(true)}
+        onCanPlay={() => setIsLoadingAudio(false)}
+        onPlaying={() => {
+          setIsLoadingAudio(false);
+          setIsPaused(false);
+          isPausedRef.current = false;
+          if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
+          }
+        }}
+        onPause={() => {
+          if (isPlayingRef.current) {
+            setIsPaused(true);
+            isPausedRef.current = true;
+            if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+              navigator.mediaSession.playbackState = 'paused';
+            }
+          }
+        }}
+        onWaiting={() => setIsLoadingAudio(true)}
+        onEnded={() => stopSpeech()}
+        onError={(e) => {
+          setIsLoadingAudio(false);
+          console.warn('Audio playback error:', e);
+          setIsPaused(true);
+          isPausedRef.current = true;
+        }}
+        onTimeUpdate={() => {
+          const audio = audioPlayerRef.current;
+          if (!audio) return;
+          const duration = audio.duration;
+          if (duration && !isNaN(duration) && isFinite(duration) && duration > 0) {
+            const fraction = Math.min(1, Math.max(0, audio.currentTime / duration));
+            const wordPos = fraction * totalWords;
+            let activeIdx = 0;
+            for (let i = 0; i < offsets.length; i++) {
+              if (offsets[i].start <= wordPos) {
+                activeIdx = i;
+              } else {
+                break;
+              }
+            }
+            if (activeIdx !== currentChunkIndexRef.current) {
+              currentChunkIndexRef.current = activeIdx;
+              setCurrentChunkIndex(activeIdx);
+              if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+                try {
+                  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                  navigator.mediaSession.metadata = new MediaMetadata({
+                    title: post ? post.title : '5LB Magazine',
+                    artist: `5LB Magazine • Blocco ${activeIdx + 1} di ${chunks.length}`,
+                    album: 'magazine.5lb.eu',
+                    artwork: [
+                      { src: `${origin}/pwa-192x192.png`, sizes: '192x192', type: 'image/png' },
+                      { src: `${origin}/pwa-512x512.png`, sizes: '512x512', type: 'image/png' },
+                    ],
+                  });
+                } catch {}
+              }
+            }
+
+            if (
+              typeof navigator !== 'undefined' &&
+              'mediaSession' in navigator &&
+              'setPositionState' in navigator.mediaSession
+            ) {
+              try {
+                navigator.mediaSession.setPositionState({
+                  duration: duration,
+                  playbackRate: 1,
+                  position: Math.min(audio.currentTime, duration),
+                });
+              } catch {}
+            }
+          }
+        }}
         style={{
           position: 'fixed',
           bottom: -200,

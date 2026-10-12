@@ -359,6 +359,117 @@ async function handleTtsRequest(req: express.Request, res: express.Response) {
 app.post('/api/tts', handleTtsRequest);
 app.get('/api/tts', handleTtsRequest);
 
+// Full article audio cache (stores generated continuous MP3 buffers)
+const articleTtsCache = new Map<string, { buffer: Buffer; contentType: string }>();
+const inFlightArticleGeneration = new Map<string, Promise<{ buffer: Buffer; contentType: string }>>();
+
+// Helper to generate full article continuous audio in batched parallel requests
+async function generateFullArticleAudio(text: string): Promise<Buffer> {
+  const subChunks: string[] = [];
+  const words = text.split(/\s+/).filter(Boolean);
+  let current = '';
+  for (const w of words) {
+    if ((current + ' ' + w).length <= 180) {
+      current = current ? `${current} ${w}` : w;
+    } else {
+      if (current) subChunks.push(current);
+      current = w;
+    }
+  }
+  if (current) subChunks.push(current);
+
+  const allBuffers: Buffer[] = [];
+  for (let i = 0; i < subChunks.length; i += 15) {
+    const batch = subChunks.slice(i, i + 15);
+    const batchResults = await Promise.all(
+      batch.map(async (chunk) => {
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=it&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            Referer: 'https://translate.google.com/',
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`Google TTS failed with status ${response.status}`);
+        }
+        const arrayBuf = await response.arrayBuffer();
+        return Buffer.from(arrayBuf);
+      })
+    );
+    allBuffers.push(...batchResults);
+  }
+
+  return Buffer.concat(allBuffers);
+}
+
+// Prepare / pre-generate continuous article audio in background
+app.post('/api/tts/prepare', async (req, res) => {
+  try {
+    const { id, text } = req.body || {};
+    if (!id || !text) {
+      return res.status(400).json({ error: 'ID o testo mancante' });
+    }
+
+    if (articleTtsCache.has(id)) {
+      return res.json({ ready: true, id });
+    }
+
+    if (!inFlightArticleGeneration.has(id)) {
+      const promise = (async () => {
+        const buffer = await generateFullArticleAudio(text);
+        const item = { buffer, contentType: 'audio/mpeg' };
+        articleTtsCache.set(id, item);
+        inFlightArticleGeneration.delete(id);
+        return item;
+      })();
+      inFlightArticleGeneration.set(id, promise);
+    }
+
+    return res.json({ ready: false, id, message: 'Generazione avviata' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Stream continuous article audio supporting HTTP Range requests
+app.get('/api/tts/article', async (req, res) => {
+  try {
+    const id = req.query.id as string;
+    const directText = req.query.text as string | undefined;
+
+    if (!id && !directText) {
+      return res.status(400).json({ error: 'Parametro id mancante' });
+    }
+
+    const cacheKey = id || `custom:${directText?.slice(0, 50)}`;
+
+    if (articleTtsCache.has(cacheKey)) {
+      const cached = articleTtsCache.get(cacheKey)!;
+      return sendAudioResponse(req, res, cached.buffer, cached.contentType);
+    }
+
+    if (inFlightArticleGeneration.has(cacheKey)) {
+      const item = await inFlightArticleGeneration.get(cacheKey)!;
+      return sendAudioResponse(req, res, item.buffer, item.contentType);
+    }
+
+    if (directText) {
+      const buffer = await generateFullArticleAudio(directText);
+      const item = { buffer, contentType: 'audio/mpeg' };
+      articleTtsCache.set(cacheKey, item);
+      return sendAudioResponse(req, res, buffer, 'audio/mpeg');
+    }
+
+    return res.status(404).json({ error: 'Audio articolo non ancora generato' });
+  } catch (err: any) {
+    console.error('Error in /api/tts/article:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
 async function startServer() {
   if (!isProduction) {
     // Development mode: Vite dev server middleware
