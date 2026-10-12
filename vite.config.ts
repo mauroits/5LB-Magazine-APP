@@ -44,7 +44,7 @@ export default defineConfig(() => {
           ],
           protocol_handlers: [
             {
-              protocol: 'web+magazine5lb',
+              protocol: 'web+magazinelb',
               url: '/?launch_pwa=1#%s',
             },
           ],

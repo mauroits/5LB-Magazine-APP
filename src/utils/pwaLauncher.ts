@@ -89,7 +89,7 @@ export function launchInstalledApp(targetUrl?: string): void {
     window.location.href = intentUrl;
   } else {
     // iOS Safari or desktop with registered protocol
-    const protocolUrl = `web+magazine5lb://open?url=${encodeURIComponent(destination)}`;
+    const protocolUrl = `web+magazinelb://open?url=${encodeURIComponent(destination)}`;
     window.location.href = protocolUrl;
   }
 }
