@@ -209,274 +209,118 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     }
   }, [post?.id, initialSearchQuery]);
 
-  // Speech & Background playback state and refs
+  // Native Web Speech Synthesis state and refs
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [currentChunkIndex, setCurrentChunkIndex] = useState<number>(0);
-  const [isLoadingAudio, setIsLoadingAudio] = useState<boolean>(false);
 
   const chunks = useMemo(() => {
     if (!post) return [];
     return extractArticleChunks(post.title, post.content);
   }, [post?.title, post?.content]);
 
-  // Audio player & state refs
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-  const wakeLockRef = useRef<any>(null);
-
-  const isPlayingRef = useRef<boolean>(false);
-  const isPausedRef = useRef<boolean>(false);
   const currentChunkIndexRef = useRef<number>(0);
+  const isSpeakingRef = useRef<boolean>(false);
+  const isPausedRef = useRef<boolean>(false);
   const chunksRef = useRef<ArticleChunk[]>([]);
   chunksRef.current = chunks;
 
-  // Calculate cumulative word positions to enable instant seeking to chunks within continuous audio
-  const { offsets, totalWords } = useMemo(() => {
-    let total = 0;
-    const offs = chunks.map((c) => {
-      const start = total;
-      total += c.wordCount;
-      return { start, wordCount: c.wordCount };
-    });
-    return { offsets: offs, totalWords: total || 1 };
-  }, [chunks]);
-
-  // Screen Wake Lock API to prevent screen timeout while reading/listening
-  const requestWakeLock = useCallback(async () => {
-    if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
-      try {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-      } catch {
-        // Wake lock may fail if battery saver is active
-      }
-    }
-  }, []);
-
-  const releaseWakeLock = useCallback(async () => {
-    if (wakeLockRef.current) {
-      try {
-        await wakeLockRef.current.release();
-      } catch {}
-      wakeLockRef.current = null;
-    }
-  }, []);
-
-  const stopCurrentPlaybackOnly = useCallback(() => {
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-      audioPlayerRef.current.currentTime = 0;
-      audioPlayerRef.current.src = '';
-    }
-  }, []);
-
   const stopSpeech = useCallback(() => {
-    isPlayingRef.current = false;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    isSpeakingRef.current = false;
     isPausedRef.current = false;
     setIsSpeaking(false);
     setIsPaused(false);
-    setIsLoadingAudio(false);
     currentChunkIndexRef.current = 0;
     setCurrentChunkIndex(0);
+  }, []);
 
-    stopCurrentPlaybackOnly();
-    releaseWakeLock();
-
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.playbackState = 'none';
-      } catch {}
-    }
-  }, [stopCurrentPlaybackOnly, releaseWakeLock]);
-
-  // Stop playback on unmount or when modal closes or post changes
-  useEffect(() => {
-    return () => {
-      stopSpeech();
-    };
-  }, [post?.id, stopSpeech]);
-
-  // Pre-generate full continuous article audio as soon as article is opened
-  useEffect(() => {
-    if (!post || !chunks.length) return;
-    const cleanFullText = chunks.map((c) => c.text).join('.\n\n');
-    fetch('/api/tts/prepare', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: post.id, text: cleanFullText }),
-    }).catch(() => {});
-  }, [post?.id, chunks]);
-
-  const setupMediaSession = useCallback(
-    (articleTitle: string, chunkIdx: number, totalChunks: number) => {
-      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-        try {
-          const origin = typeof window !== 'undefined' ? window.location.origin : '';
-          navigator.mediaSession.metadata = new MediaMetadata({
-            title: articleTitle || '5LB Magazine',
-            artist: `5LB Magazine • Blocco ${chunkIdx + 1} di ${totalChunks}`,
-            album: 'magazine.5lb.eu',
-            artwork: [
-              { src: `${origin}/pwa-192x192.png`, sizes: '192x192', type: 'image/png' },
-              { src: `${origin}/pwa-512x512.png`, sizes: '512x512', type: 'image/png' },
-            ],
-          });
-
-          navigator.mediaSession.setActionHandler('play', () => {
-            handleResume();
-          });
-
-          navigator.mediaSession.setActionHandler('pause', () => {
-            handlePause();
-          });
-
-          navigator.mediaSession.setActionHandler('stop', () => {
-            stopSpeech();
-          });
-
-          navigator.mediaSession.setActionHandler('nexttrack', () => {
-            handleNextChunk();
-          });
-
-          navigator.mediaSession.setActionHandler('previoustrack', () => {
-            handlePrevChunk();
-          });
-
-          try {
-            navigator.mediaSession.setActionHandler('seekto', (details) => {
-              if (audioPlayerRef.current && details.seekTime != null) {
-                audioPlayerRef.current.currentTime = details.seekTime;
-              }
-            });
-            navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-              if (audioPlayerRef.current) {
-                const step = details.seekOffset || 15;
-                audioPlayerRef.current.currentTime = Math.max(0, audioPlayerRef.current.currentTime - step);
-              }
-            });
-            navigator.mediaSession.setActionHandler('seekforward', (details) => {
-              if (audioPlayerRef.current) {
-                const step = details.seekOffset || 15;
-                audioPlayerRef.current.currentTime = Math.min(
-                  audioPlayerRef.current.duration || 0,
-                  audioPlayerRef.current.currentTime + step
-                );
-              }
-            });
-          } catch {}
-
-          navigator.mediaSession.playbackState = 'playing';
-        } catch {}
+  const speakChunk = useCallback(
+    (index: number) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+      const currentChunks = chunksRef.current;
+      if (index < 0 || index >= currentChunks.length) {
+        stopSpeech();
+        return;
       }
+
+      // Stop any current utterance
+      window.speechSynthesis.cancel();
+
+      currentChunkIndexRef.current = index;
+      setCurrentChunkIndex(index);
+      isSpeakingRef.current = true;
+      isPausedRef.current = false;
+      setIsSpeaking(true);
+      setIsPaused(false);
+
+      const chunk = currentChunks[index];
+      const utterance = new SpeechSynthesisUtterance(chunk.text);
+      utterance.lang = 'it-IT';
+      utterance.rate = 1.0;
+
+      // Select Italian voice if installed in browser
+      const voices = window.speechSynthesis.getVoices();
+      const itVoice = voices.find((v) => v.lang.startsWith('it'));
+      if (itVoice) {
+        utterance.voice = itVoice;
+      }
+
+      utterance.onend = () => {
+        if (isSpeakingRef.current && !isPausedRef.current) {
+          if (index + 1 < currentChunks.length) {
+            speakChunk(index + 1);
+          } else {
+            stopSpeech();
+          }
+        }
+      };
+
+      utterance.onerror = (e) => {
+        if (e.error !== 'interrupted' && e.error !== 'canceled') {
+          if (isSpeakingRef.current && !isPausedRef.current) {
+            stopSpeech();
+          }
+        }
+      };
+
+      window.speechSynthesis.speak(utterance);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [stopSpeech]
   );
 
-  const handlePause = useCallback(() => {
-    isPausedRef.current = true;
-    setIsPaused(true);
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-    }
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'paused';
-    }
-  }, []);
-
-  const handleResume = useCallback(() => {
-    isPausedRef.current = false;
-    setIsPaused(false);
-    const audio = audioPlayerRef.current;
-    if (audio) {
-      audio.play().catch(() => {});
-    }
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'playing';
-    }
-  }, []);
-
   const handleTogglePlayPause = useCallback(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
     if (isPausedRef.current) {
-      handleResume();
+      // Resume reading from current chunk
+      speakChunk(currentChunkIndexRef.current);
     } else {
-      handlePause();
+      // Pause
+      window.speechSynthesis.cancel();
+      isPausedRef.current = true;
+      setIsPaused(true);
     }
-  }, [handlePause, handleResume]);
+  }, [speakChunk]);
 
   const handleNextChunk = useCallback(() => {
-    const audio = audioPlayerRef.current;
-    if (!audio || chunks.length === 0) return;
-    const nextIdx = Math.min(chunks.length - 1, currentChunkIndexRef.current + 1);
-    currentChunkIndexRef.current = nextIdx;
-    setCurrentChunkIndex(nextIdx);
-
-    const duration = audio.duration;
-    if (duration && !isNaN(duration) && duration > 0) {
-      const targetTime = (offsets[nextIdx].start / totalWords) * duration;
-      audio.currentTime = targetTime;
+    if (currentChunkIndexRef.current < chunks.length - 1) {
+      speakChunk(currentChunkIndexRef.current + 1);
     }
-
-    if (audio.paused) {
-      audio.play().catch(() => {});
-      isPausedRef.current = false;
-      setIsPaused(false);
-    }
-
-    setupMediaSession(post ? post.title : '5LB Magazine', nextIdx, chunks.length);
-  }, [chunks.length, offsets, totalWords, post, setupMediaSession]);
+  }, [chunks.length, speakChunk]);
 
   const handlePrevChunk = useCallback(() => {
-    const audio = audioPlayerRef.current;
-    if (!audio || chunks.length === 0) return;
-    const prevIdx = Math.max(0, currentChunkIndexRef.current - 1);
-    currentChunkIndexRef.current = prevIdx;
-    setCurrentChunkIndex(prevIdx);
-
-    const duration = audio.duration;
-    if (duration && !isNaN(duration) && duration > 0) {
-      const targetTime = (offsets[prevIdx].start / totalWords) * duration;
-      audio.currentTime = targetTime;
+    if (currentChunkIndexRef.current > 0) {
+      speakChunk(currentChunkIndexRef.current - 1);
     }
-
-    if (audio.paused) {
-      audio.play().catch(() => {});
-      isPausedRef.current = false;
-      setIsPaused(false);
-    }
-
-    setupMediaSession(post ? post.title : '5LB Magazine', prevIdx, chunks.length);
-  }, [chunks.length, offsets, totalWords, post, setupMediaSession]);
+  }, [speakChunk]);
 
   const startSpeech = useCallback(() => {
-    if (!post) return;
-    const audio = audioPlayerRef.current;
-    if (!audio) return;
-
-    isPlayingRef.current = true;
-    isPausedRef.current = false;
-    setIsSpeaking(true);
-    setIsPaused(false);
-    setIsLoadingAudio(true);
-    currentChunkIndexRef.current = 0;
-    setCurrentChunkIndex(0);
-
-    requestWakeLock();
-    setupMediaSession(post.title, 0, chunks.length);
-
-    // Continuous audio stream of the complete article
-    const streamUrl = `/api/tts/article?id=${encodeURIComponent(post.id)}`;
-    if (!audio.src || !audio.src.includes(`/api/tts/article?id=${encodeURIComponent(post.id)}`)) {
-      audio.src = streamUrl;
-    }
-
-    // CRITICAL: play() is called synchronously within the user touch gesture!
-    audio.play().catch((err) => {
-      console.warn('Audio play exception:', err);
-      setIsLoadingAudio(false);
-      setIsPaused(true);
-      isPausedRef.current = true;
-    });
-  }, [post, chunks.length, requestWakeLock, setupMediaSession]);
+    if (!post || chunks.length === 0) return;
+    speakChunk(0);
+  }, [post, chunks.length, speakChunk]);
 
   const toggleSpeech = () => {
     if (isSpeaking) {
@@ -486,25 +330,12 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     }
   };
 
-  // Keep background speech alive across screen lock / visibility changes
+  // Stop speech when post changes or modal is closed
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (isPlayingRef.current) {
-        if (document.visibilityState === 'visible') {
-          requestWakeLock();
-          const audio = audioPlayerRef.current;
-          if (audio && !isPausedRef.current && audio.paused && !audio.ended) {
-            audio.play().catch(() => {});
-          }
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopSpeech();
     };
-  }, [requestWakeLock]);
+  }, [post?.id, stopSpeech]);
 
   // Highlighted HTML content & match count computation
   const { highlightedHtml, totalMatches } = useMemo(() => {
@@ -583,99 +414,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs">
-      {/* Real DOM HTML5 Audio Element for native background and lockscreen playback on Android */}
-      <audio
-        ref={audioPlayerRef}
-        id="5lb-article-audio-player"
-        playsInline
-        preload="auto"
-        aria-hidden="true"
-        onLoadStart={() => setIsLoadingAudio(true)}
-        onCanPlay={() => setIsLoadingAudio(false)}
-        onPlaying={() => {
-          setIsLoadingAudio(false);
-          setIsPaused(false);
-          isPausedRef.current = false;
-          if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-            navigator.mediaSession.playbackState = 'playing';
-          }
-        }}
-        onPause={() => {
-          if (isPlayingRef.current) {
-            setIsPaused(true);
-            isPausedRef.current = true;
-            if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-              navigator.mediaSession.playbackState = 'paused';
-            }
-          }
-        }}
-        onWaiting={() => setIsLoadingAudio(true)}
-        onEnded={() => stopSpeech()}
-        onError={(e) => {
-          setIsLoadingAudio(false);
-          console.warn('Audio playback error:', e);
-          setIsPaused(true);
-          isPausedRef.current = true;
-        }}
-        onTimeUpdate={() => {
-          const audio = audioPlayerRef.current;
-          if (!audio) return;
-          const duration = audio.duration;
-          if (duration && !isNaN(duration) && isFinite(duration) && duration > 0) {
-            const fraction = Math.min(1, Math.max(0, audio.currentTime / duration));
-            const wordPos = fraction * totalWords;
-            let activeIdx = 0;
-            for (let i = 0; i < offsets.length; i++) {
-              if (offsets[i].start <= wordPos) {
-                activeIdx = i;
-              } else {
-                break;
-              }
-            }
-            if (activeIdx !== currentChunkIndexRef.current) {
-              currentChunkIndexRef.current = activeIdx;
-              setCurrentChunkIndex(activeIdx);
-              if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-                try {
-                  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-                  navigator.mediaSession.metadata = new MediaMetadata({
-                    title: post ? post.title : '5LB Magazine',
-                    artist: `5LB Magazine • Blocco ${activeIdx + 1} di ${chunks.length}`,
-                    album: 'magazine.5lb.eu',
-                    artwork: [
-                      { src: `${origin}/pwa-192x192.png`, sizes: '192x192', type: 'image/png' },
-                      { src: `${origin}/pwa-512x512.png`, sizes: '512x512', type: 'image/png' },
-                    ],
-                  });
-                } catch {}
-              }
-            }
 
-            if (
-              typeof navigator !== 'undefined' &&
-              'mediaSession' in navigator &&
-              'setPositionState' in navigator.mediaSession
-            ) {
-              try {
-                navigator.mediaSession.setPositionState({
-                  duration: duration,
-                  playbackRate: 1,
-                  position: Math.min(audio.currentTime, duration),
-                });
-              } catch {}
-            }
-          }
-        }}
-        style={{
-          position: 'fixed',
-          bottom: -200,
-          left: -200,
-          width: 2,
-          height: 2,
-          opacity: 0.01,
-          pointerEvents: 'none',
-        }}
-      />
       <div className="relative w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-3xl bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
         {/* Sticky Reader Toolbar */}
         <div className="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
@@ -803,11 +542,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                   {chunks[currentChunkIndex]?.wordCount ? ` • ~${chunks[currentChunkIndex].wordCount} parole` : ''}
                 </span>
               )}
-              {isLoadingAudio && (
-                <span className="text-[10px] text-orange-600 dark:text-orange-400 animate-pulse hidden sm:inline">
-                  • Caricamento audio...
-                </span>
-              )}
+
             </div>
 
             {/* Right: Controls (Salto Indietro, Play/Pausa, Salto Avanti, Ferma) */}
