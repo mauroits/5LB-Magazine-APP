@@ -25,6 +25,7 @@ import { BloggerPost } from '../types';
 import { formatItalianDate } from '../services/bloggerFeed';
 import { highlightHtmlContent } from '../utils/searchUtils';
 import { trackEvent } from '../services/analytics';
+import { openExternalBrowser } from '../utils/browserLauncher';
 
 export interface ArticleChunk {
   index: number;
@@ -221,6 +222,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
   // Audio player & state refs
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const blobCacheRef = useRef<Map<number, string>>(new Map());
   const wakeLockRef = useRef<any>(null);
 
   const isPlayingRef = useRef<boolean>(false);
@@ -229,7 +231,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const chunksRef = useRef<ArticleChunk[]>([]);
   chunksRef.current = chunks;
 
-  // Screen Wake Lock API to prevent screen timeout while listening
+  // Screen Wake Lock API to prevent screen timeout while reading/listening
   const requestWakeLock = useCallback(async () => {
     if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
       try {
@@ -254,6 +256,34 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       audioPlayerRef.current.pause();
       audioPlayerRef.current.onended = null;
       audioPlayerRef.current.onerror = null;
+      audioPlayerRef.current.ontimeupdate = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  }, []);
+
+  // Preload and cache audio Blobs in memory for instant 0ms track transitions on lock screen
+  const prefetchChunkBlob = useCallback(async (idx: number): Promise<string> => {
+    if (blobCacheRef.current.has(idx)) {
+      return blobCacheRef.current.get(idx)!;
+    }
+    const all = chunksRef.current;
+    if (idx < 0 || idx >= all.length) return '';
+    const chunk = all[idx];
+    if (!chunk || !chunk.text.trim()) return '';
+
+    try {
+      const res = await fetch(`/api/tts?text=${encodeURIComponent(chunk.text)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      blobCacheRef.current.set(idx, blobUrl);
+      return blobUrl;
+    } catch {
+      return `/api/tts?text=${encodeURIComponent(chunk.text)}`;
     }
   }, []);
 
@@ -269,6 +299,16 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     stopCurrentPlaybackOnly();
     releaseWakeLock();
 
+    // Revoke object URLs to free memory
+    for (const url of blobCacheRef.current.values()) {
+      if (url.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      }
+    }
+    blobCacheRef.current.clear();
+
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       try {
         navigator.mediaSession.playbackState = 'none';
@@ -283,14 +323,14 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     };
   }, [post?.id, stopSpeech]);
 
-  // Pre-fetch first chunk in browser HTTP cache as soon as article is opened
+  // Pre-fetch initial chunks as soon as article chunks are computed
   useEffect(() => {
     if (!chunks.length) return;
-    const chunk0 = chunks[0];
-    if (!chunk0) return;
-
-    fetch(`/api/tts?text=${encodeURIComponent(chunk0.text)}`).catch(() => {});
-  }, [chunks]);
+    prefetchChunkBlob(0).catch(() => {});
+    if (chunks.length > 1) {
+      prefetchChunkBlob(1).catch(() => {});
+    }
+  }, [chunks, prefetchChunkBlob]);
 
   const setupMediaSession = useCallback(
     (articleTitle: string, chunkIdx: number, totalChunks: number) => {
@@ -299,7 +339,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           const origin = typeof window !== 'undefined' ? window.location.origin : '';
           navigator.mediaSession.metadata = new MediaMetadata({
             title: articleTitle || '5LB Magazine',
-            artist: `5LB Magazine • Blocco ${chunkIdx + 1} di ${totalChunks}`,
+            artist: `5LB Magazine • Parte ${chunkIdx + 1} di ${totalChunks}`,
             album: 'magazine.5lb.eu',
             artwork: [
               { src: `${origin}/pwa-192x192.png`, sizes: '192x192', type: 'image/png' },
@@ -340,6 +380,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         } catch {}
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
@@ -369,24 +410,59 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         return;
       }
 
-      // Update MediaSession with current chunk information & system notification
+      // Pre-fetch following chunks into RAM buffer ahead of time
+      prefetchChunkBlob(index + 1).catch(() => {});
+      prefetchChunkBlob(index + 2).catch(() => {});
+
+      // Update MediaSession with active article & chunk information
       setupMediaSession(post ? post.title : '5LB Magazine', index, all.length);
 
       const audio = audioPlayerRef.current;
       if (audio) {
         try {
-          const streamUrl = `/api/tts?text=${encodeURIComponent(textToSpeak)}`;
+          setIsLoadingAudio(true);
+
+          let streamUrl = blobCacheRef.current.get(index);
+          if (!streamUrl) {
+            streamUrl = await prefetchChunkBlob(index);
+          }
+
           audio.src = streamUrl;
 
           audio.onloadstart = () => setIsLoadingAudio(true);
-          audio.onplaying = () => setIsLoadingAudio(false);
+          audio.onplaying = () => {
+            setIsLoadingAudio(false);
+            if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+              navigator.mediaSession.playbackState = 'playing';
+            }
+          };
           audio.oncanplay = () => setIsLoadingAudio(false);
           audio.onwaiting = () => setIsLoadingAudio(true);
+
+          audio.ontimeupdate = () => {
+            if (
+              typeof navigator !== 'undefined' &&
+              'mediaSession' in navigator &&
+              'setPositionState' in navigator.mediaSession &&
+              audio.duration &&
+              !isNaN(audio.duration) &&
+              isFinite(audio.duration)
+            ) {
+              try {
+                navigator.mediaSession.setPositionState({
+                  duration: audio.duration,
+                  playbackRate: audio.playbackRate || 1,
+                  position: Math.min(audio.currentTime, audio.duration),
+                });
+              } catch {}
+            }
+          };
 
           audio.onended = () => {
             if (isPlayingRef.current && !isPausedRef.current) {
               const next = index + 1;
               if (next < all.length) {
+                // Immediate 0ms handover using pre-buffered memory blob
                 playChunk(next);
               } else {
                 stopSpeech();
@@ -397,24 +473,37 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           audio.onerror = (e) => {
             setIsLoadingAudio(false);
             console.warn('Audio playback error on chunk', index, e);
-            // CRITICAL: NEVER advance or skip chunks on error!
-            // Pause cleanly so the user remains exactly on the current chunk.
+            // Fallback: If network audio fails, read via client Web Speech API so voice is never silent
+            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+              try {
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                utterance.lang = 'it-IT';
+                utterance.onend = () => {
+                  if (isPlayingRef.current && !isPausedRef.current) {
+                    const next = index + 1;
+                    if (next < all.length) playChunk(next);
+                    else stopSpeech();
+                  }
+                };
+                utterance.onerror = () => {
+                  setIsPaused(true);
+                  isPausedRef.current = true;
+                };
+                window.speechSynthesis.speak(utterance);
+                return;
+              } catch {}
+            }
             setIsPaused(true);
             isPausedRef.current = true;
           };
 
           await audio.play();
-
-          // Pre-fetch next chunk into browser HTTP cache for instant transition
-          if (index + 1 < all.length) {
-            fetch(`/api/tts?text=${encodeURIComponent(all[index + 1].text)}`).catch(() => {});
-          }
         } catch (err: any) {
           console.warn('Audio play exception:', err);
         }
       }
     },
-    [post, stopSpeech, setupMediaSession]
+    [post, stopSpeech, setupMediaSession, prefetchChunkBlob]
   );
 
   const handleTogglePlayPause = useCallback(() => {
@@ -428,6 +517,9 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       } else {
         playChunk(currentChunkIndexRef.current);
       }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
       if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'playing';
       }
@@ -437,6 +529,9 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
       setIsPaused(true);
       if (audioPlayerRef.current) {
         audioPlayerRef.current.pause();
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking) {
+        window.speechSynthesis.pause();
       }
       if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused';
@@ -552,11 +647,17 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   if (!post) return null;
 
   const handleShare = async () => {
-    if (navigator.share) {
+    const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+    trackEvent('share', {
+      method: canShare ? 'native_share' : 'clipboard',
+      content_type: 'article',
+      item_id: post.id,
+      url: post.link,
+    });
+
+    if (canShare) {
       try {
         await navigator.share({
-          title: post.title,
-          text: post.summary,
           url: post.link,
         });
       } catch (e) {
@@ -687,6 +788,10 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               href={post.link}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                openExternalBrowser(post.link);
+              }}
               className="p-2 rounded-xl text-slate-500 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               title="Apri articolo originale su magazine.5lb.eu"
             >
@@ -935,7 +1040,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                     article_title: post.title,
                     article_id: post.id,
                   });
-                  window.open(href, '_blank', 'noopener,noreferrer');
+                  openExternalBrowser(href);
                 }
               }
             }}
@@ -955,14 +1060,16 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               href={post.link}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={() => {
+              onClick={(e) => {
+                e.preventDefault();
                 trackEvent('open_original_blogger_post', {
                   link_url: post.link,
                   article_title: post.title,
                   article_id: post.id,
                 });
+                openExternalBrowser(post.link);
               }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-xs"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-xs cursor-pointer"
             >
               <span>Vai a magazine.5lb.eu</span>
               <ExternalLink className="w-3.5 h-3.5" />

@@ -289,6 +289,14 @@ export const NAV_SECTIONS: NavSection[] = [
         targetUrl: 'https://androgyne.5lb.eu/',
         description: 'La polarità biologica e l’approccio integrato',
       },
+      {
+        id: 'frame-storia',
+        label: 'Raccontaci la tua storia',
+        type: 'link',
+        iconName: 'message-circle',
+        targetUrl: 'https://framework.5lb.eu/it/vostre-storie-5-leggi-biologiche',
+        description: 'Condividi la tua esperienza con le 5 Leggi Biologiche',
+      },
     ],
   },
 

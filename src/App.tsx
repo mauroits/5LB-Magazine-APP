@@ -10,9 +10,9 @@ import { ArticleList } from './components/ArticleList';
 import { ArticleModal } from './components/ArticleModal';
 import { InfoModal } from './components/InfoModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
-import { NotebookModal } from './components/NotebookModal';
-import { ExternalLinkModal } from './components/ExternalLinkModal';
-import { TelegramModal } from './components/TelegramModal';
+import { openExternalBrowser } from './utils/browserLauncher';
+
+
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { CookieConsentModal } from './components/CookieConsentModal';
@@ -108,9 +108,6 @@ export default function App() {
   const [selectedPost, setSelectedPost] = useState<BloggerPost | null>(null);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isNotebookOpen, setIsNotebookOpen] = useState(false);
-  const [selectedExternalLink, setSelectedExternalLink] = useState<NavItem | null>(null);
-  const [isTelegramOpen, setIsTelegramOpen] = useState(false);
   const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [isCookieManageMode, setIsCookieManageMode] = useState(false);
 
@@ -681,8 +678,8 @@ export default function App() {
   };
 
   const handleOpenNotebook = () => {
-    trackPageView('/webview/notebooklm', 'Google NotebookLM (Webview) — 5LB Magazine');
-    trackEvent('open_webview_link', {
+    trackPageView('/link/notebooklm', 'Google NotebookLM — 5LB Magazine');
+    trackEvent('open_external_link', {
       link_url: GOOGLE_NOTEBOOK_URL,
       link_title: 'Google NotebookLM',
       link_type: 'notebook',
@@ -691,13 +688,13 @@ export default function App() {
   };
 
   const handleOpenTelegram = () => {
-    trackPageView('/webview/telegram', 'Telegram Accade Oggi (Webview) — 5LB Magazine');
-    trackEvent('open_webview_link', {
+    trackPageView('/link/telegram', 'Telegram Accade Oggi — 5LB Magazine');
+    trackEvent('open_external_link', {
       link_url: 'https://t.me/s/magazine5LB',
       link_title: 'Accade Oggi (Telegram)',
       link_type: 'telegram',
     });
-    setIsTelegramOpen(true);
+    openExternalBrowser('https://t.me/s/magazine5LB');
   };
 
   // Online archive search handler: calls Blogger API and imports found articles into local state
@@ -790,7 +787,6 @@ export default function App() {
           setSearchQuery('');
         }}
         onSelectLink={(item) => {
-          setSelectedExternalLink(item);
           if (item.targetUrl) {
             const domain = (() => {
               try {
@@ -799,13 +795,14 @@ export default function App() {
                 return '';
               }
             })();
-            trackPageView(`/webview/${encodeURIComponent(item.label)}`, `${item.label} (Webview) — 5LB Magazine`);
-            trackEvent('open_webview_link', {
+            trackPageView(`/link/${encodeURIComponent(item.label)}`, `${item.label} — 5LB Magazine`);
+            trackEvent('open_external_link', {
               link_url: item.targetUrl,
               link_title: item.label,
               link_domain: domain,
               link_type: 'external_resource',
             });
+            openExternalBrowser(item.targetUrl);
           }
         }}
         onOpenNotebook={handleOpenNotebook}
@@ -937,29 +934,6 @@ export default function App() {
         }}
       />
 
-      {/* Google NotebookLM In-App Modal with User-Adjustable Zoom Controls */}
-      <NotebookModal
-        isOpen={isNotebookOpen}
-        onClose={() => setIsNotebookOpen(false)}
-      />
-
-      {/* Telegram Accade Oggi In-App Webview Modal */}
-      <TelegramModal
-        isOpen={isTelegramOpen}
-        onClose={() => {
-          setIsTelegramOpen(false);
-          trackPageView(window.location.pathname || '/', '5LB Magazine');
-        }}
-      />
-
-      {/* External / Webview Modal */}
-      <ExternalLinkModal
-        item={selectedExternalLink}
-        onClose={() => {
-          setSelectedExternalLink(null);
-          trackPageView(window.location.pathname || '/', '5LB Magazine');
-        }}
-      />
 
       {/* PWA Offline indicator */}
       <OfflineIndicator />

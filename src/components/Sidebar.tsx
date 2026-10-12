@@ -41,6 +41,7 @@ import { Logo5LB } from './Logo5LB';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ThemeMode } from '../hooks/useTheme';
 import { Sun, Moon, Monitor } from 'lucide-react';
+import { openExternalBrowser } from '../utils/browserLauncher';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -204,7 +205,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (onSelectLink) {
         onSelectLink(item);
       } else if (item.targetUrl) {
-        window.open(item.targetUrl, '_blank', 'noopener,noreferrer');
+        openExternalBrowser(item.targetUrl);
       }
       onClose();
     }

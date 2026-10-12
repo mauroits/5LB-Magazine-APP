@@ -21,8 +21,14 @@ const ai = process.env.GEMINI_API_KEY
     })
   : null;
 
-// In-memory cache for generated TTS audio buffers (max 150 items)
-const ttsCache = new Map<string, Buffer>();
+interface CachedTts {
+  buffer: Buffer;
+  contentType: string;
+}
+
+// In-memory cache for generated TTS audio buffers (max 300 items)
+const ttsCache = new Map<string, CachedTts>();
+
 
 app.use(express.json());
 
@@ -191,7 +197,45 @@ app.get('/api/telegram-view', async (req, res) => {
   }
 });
 
-// Helper to generate natural Italian speech audio via Google TTS stream
+// Helper to send audio response with HTTP Range (206 Partial Content) support for mobile media players
+function sendAudioResponse(
+  req: express.Request,
+  res: express.Response,
+  buffer: Buffer,
+  contentType: string
+) {
+  const totalLength = buffer.length;
+  const rangeHeader = req.headers.range;
+
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+
+  if (rangeHeader) {
+    const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+    if (match) {
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : totalLength - 1;
+
+      if (start >= totalLength || end >= totalLength || start > end) {
+        res.setHeader('Content-Range', `bytes */${totalLength}`);
+        return res.status(416).end();
+      }
+
+      const chunk = buffer.subarray(start, end + 1);
+      res.status(206);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${totalLength}`);
+      res.setHeader('Content-Length', chunk.length.toString());
+      return res.end(chunk);
+    }
+  }
+
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Length', totalLength.toString());
+  return res.end(buffer);
+}
+
+// Helper to generate natural Italian speech audio via Google TTS stream with parallel fetching
 async function generateGoogleTtsAudio(text: string): Promise<Buffer> {
   const subChunks: string[] = [];
   const words = text.split(/\s+/).filter(Boolean);
@@ -206,8 +250,7 @@ async function generateGoogleTtsAudio(text: string): Promise<Buffer> {
   }
   if (current) subChunks.push(current);
 
-  const buffers: Buffer[] = [];
-  for (const chunk of subChunks) {
+  const promises = subChunks.map(async (chunk) => {
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=it&client=tw-ob&q=${encodeURIComponent(chunk)}`;
     const response = await fetch(url, {
       headers: {
@@ -220,9 +263,10 @@ async function generateGoogleTtsAudio(text: string): Promise<Buffer> {
       throw new Error(`Google TTS failed with status ${response.status}`);
     }
     const arrayBuf = await response.arrayBuffer();
-    buffers.push(Buffer.from(arrayBuf));
-  }
+    return Buffer.from(arrayBuf);
+  });
 
+  const buffers = await Promise.all(promises);
   return Buffer.concat(buffers);
 }
 
@@ -242,45 +286,42 @@ async function handleTtsRequest(req: express.Request, res: express.Response) {
     }
 
     const safeText = trimmed.slice(0, 1200);
-    const voiceName = voice || 'Kore';
-    const cacheKey = `tts:${voiceName}:${safeText}`;
+    const voiceName = voice || 'default';
+    const cacheKey = `tts:v3:${voiceName}:${safeText}`;
 
     // 1. Check in-memory cache
     if (ttsCache.has(cacheKey)) {
       const cached = ttsCache.get(cacheKey)!;
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Content-Length', cached.length);
-      res.setHeader('Accept-Ranges', 'bytes');
-      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-      return res.end(cached);
+      return sendAudioResponse(req, res, cached.buffer, cached.contentType);
     }
 
     let audioBuffer: Buffer | null = null;
     let contentType = 'audio/mpeg';
 
-    // 2. Try Gemini 3.8 Flash Lite TTS if API key is present
-    if (ai && process.env.GEMINI_API_KEY) {
+    // 2. Primary engine: Google Italian TTS (ultra-fast ~300ms, MP3 format, universally supported by Android and iOS)
+    try {
+      audioBuffer = await generateGoogleTtsAudio(safeText);
+      contentType = 'audio/mpeg';
+    } catch (googleError) {
+      console.warn('Google TTS service issue, trying Gemini fallback:', googleError);
+    }
+
+    // 3. Fallback engine: Gemini TTS if Google TTS fails or if configured
+    if (!audioBuffer && ai && process.env.GEMINI_API_KEY) {
       try {
         const response = await ai.models.generateContent({
           model: 'gemini-3.8-flash-lite-tts',
           contents: [
             {
               role: 'user',
-              parts: [
-                {
-                  text: safeText,
-                  speechMetadata: {
-                    style: 'Voce narrante italiana, chiara, fluida e naturale, tono rilassante e professionale',
-                  },
-                },
-              ],
+              parts: [{ text: safeText }],
             },
           ],
           config: {
             responseModalities: ['AUDIO'],
             speechConfig: {
               voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: voiceName },
+                prebuiltVoiceConfig: { voiceName: voice === 'default' ? 'Kore' : (voice || 'Kore') },
               },
             },
           },
@@ -292,33 +333,28 @@ async function handleTtsRequest(req: express.Request, res: express.Response) {
           contentType = 'audio/wav';
         }
       } catch (geminiError: any) {
-        console.warn('Gemini TTS quota or error, falling back to Google Italian TTS:', geminiError?.message || geminiError);
+        console.warn('Gemini TTS error:', geminiError?.message || geminiError);
       }
     }
 
-    // 3. Fallback to Google Italian TTS (guaranteed 100% availability, 0ms quota, audio/mpeg)
     if (!audioBuffer) {
-      audioBuffer = await generateGoogleTtsAudio(safeText);
-      contentType = 'audio/mpeg';
+      return res.status(503).json({ error: 'Sintesi vocale temporaneamente non disponibile.' });
     }
 
-    // Cache the result
-    if (ttsCache.size > 200) {
+    // Cache the result with its exact content type
+    if (ttsCache.size > 300) {
       const firstKey = ttsCache.keys().next().value;
       if (firstKey) ttsCache.delete(firstKey);
     }
-    ttsCache.set(cacheKey, audioBuffer);
+    ttsCache.set(cacheKey, { buffer: audioBuffer, contentType });
 
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', audioBuffer.length);
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-    return res.end(audioBuffer);
+    return sendAudioResponse(req, res, audioBuffer, contentType);
   } catch (error: any) {
     console.error('Error in /api/tts endpoint:', error);
     return res.status(500).json({ error: error.message || 'Errore nella generazione vocale.' });
   }
 }
+
 
 app.post('/api/tts', handleTtsRequest);
 app.get('/api/tts', handleTtsRequest);
