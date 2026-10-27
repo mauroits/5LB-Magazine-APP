@@ -20,6 +20,8 @@ import {
   Info,
   Sparkles,
   Cookie,
+  Users,
+  Archive,
   X
 } from 'lucide-react';
 import { NavItem, NavSection, ActiveFilter } from '../types';
@@ -42,6 +44,8 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { ThemeMode } from '../hooks/useTheme';
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { openExternalBrowser } from '../utils/browserLauncher';
+import { BadgeNavPill } from './BadgeIcon';
+import { InterfaceZoomControl } from './InterfaceZoomControl';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -54,6 +58,7 @@ interface SidebarProps {
   onOpenTelegram: () => void;
   onOpenInfo: () => void;
   onOpenCookieSettings?: () => void;
+  onOpenBadgesModal?: () => void;
   unreadCount: number;
   totalCount: number;
   favoritesCount: number;
@@ -61,6 +66,11 @@ interface SidebarProps {
   categoryCounts: Record<string, number>;
   themeMode: ThemeMode;
   onCycleTheme: () => void;
+  zoomLevel: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onSetZoom: (level: number) => void;
+  onResetZoom: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -74,6 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenTelegram,
   onOpenInfo,
   onOpenCookieSettings,
+  onOpenBadgesModal,
   unreadCount,
   totalCount,
   favoritesCount,
@@ -81,6 +92,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   categoryCounts,
   themeMode,
   onCycleTheme,
+  zoomLevel,
+  onZoomIn,
+  onZoomOut,
+  onSetZoom,
+  onResetZoom,
 }) => {
   // Collapsed / Expanded states for macrosections (INFORMAZIONE is open by default)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
@@ -105,8 +121,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const renderIcon = (iconName: string) => {
     switch (iconName) {
+      case 'archive':
+        return <Archive className="w-5 h-5 text-orange-500" />;
       case 'clock':
         return <Clock className="w-5 h-5 text-orange-500" />;
+      case 'users':
+        return <Users className="w-5 h-5 text-black dark:text-white" />;
       case 'mail':
         return <Mail className="w-5 h-5 text-emerald-500" />;
       case 'heart':
@@ -183,14 +203,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const handleItemClick = (item: NavItem) => {
-    if (item.id === 'filter-accade-oggi') {
-      onOpenTelegram();
-      onClose();
-      return;
-    }
-
     if (item.type === 'filter') {
-      if (item.id === 'filter-ultime') onSelectFilter({ type: 'quick', id: 'all' });
+      if (item.id === 'filter-accade-oggi') onSelectFilter({ type: 'quick', id: 'today' });
+      else if (item.id === 'filter-ultime') onSelectFilter({ type: 'quick', id: 'all' });
       else if (item.id === 'filter-non-letto') onSelectFilter({ type: 'quick', id: 'unread' });
       else if (item.id === 'filter-ti-piace') onSelectFilter({ type: 'quick', id: 'favorites' });
       onClose();
@@ -213,10 +228,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Get badge count for RSS item
   const getItemBadge = (item: NavItem) => {
+    // Il numero a lato di Accade oggi deve essere rimosso
+    if (item.id === 'filter-accade-oggi') return undefined;
     if (item.id === 'filter-ultime') return totalCount || undefined;
     if (item.id === 'filter-non-letto') return unreadCount || undefined;
     if (item.id === 'filter-ti-piace') return favoritesCount || undefined;
-    if (item.id === 'filter-accade-oggi') return todayCount || undefined;
 
     if (item.type === 'rss' && item.rssCategory) {
       const target = item.rssCategory.toLowerCase();
@@ -284,14 +300,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Scrollable Navigation Body */}
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 select-none pb-6">
+        <div className="flex-1 overflow-y-auto overscroll-y-contain divide-y divide-slate-100 dark:divide-slate-800/60 select-none pb-6">
           {/* Quick Filters Section */}
           <div className="py-2">
             {[
-              { id: 'filter-ultime', label: 'Ultime', icon: 'clock', color: 'text-orange-600' },
+              { id: 'filter-accade-oggi', label: 'Accade oggi', icon: 'users', color: 'text-black dark:text-white' },
+              { id: 'filter-ultime', label: 'Il mio archivio', icon: 'archive', color: 'text-orange-600' },
               { id: 'filter-non-letto', label: 'Non letto', icon: 'mail', color: 'text-emerald-600' },
-              { id: 'filter-ti-piace', label: 'Ti piace', icon: 'heart', color: 'text-slate-900 dark:text-white' },
-              { id: 'filter-accade-oggi', label: 'Accade oggi', icon: 'send', color: 'text-slate-900 dark:text-white' },
+              { id: 'filter-ti-piace', label: 'Salvati per dopo', icon: 'heart', color: 'text-slate-900 dark:text-white' },
             ].map((f) => {
               const item: NavItem = {
                 id: f.id,
@@ -302,9 +318,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
               const active = isItemActive(item);
               const badge = getItemBadge(item);
 
+              if (f.id === 'filter-ultime') {
+                return (
+                  <div
+                    key={f.id}
+                    className={`w-full flex items-center justify-between px-5 py-2.5 transition hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                      active ? 'bg-orange-50/80 dark:bg-orange-950/30 font-semibold' : ''
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleItemClick(item)}
+                      className="flex-1 flex items-center gap-4 text-left cursor-pointer min-w-0 py-0.5"
+                    >
+                      <span className="w-6 flex items-center justify-center shrink-0">
+                        {renderIcon(f.icon)}
+                      </span>
+                      <span
+                        className={`text-[0.9375rem] font-medium truncate ${
+                          active
+                            ? 'text-orange-600 dark:text-orange-400 font-semibold'
+                            : f.color
+                        }`}
+                      >
+                        {f.label}
+                      </span>
+                    </button>
+
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {typeof badge === 'number' && badge > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleItemClick(item)}
+                          className="text-sm font-semibold tabular-nums text-orange-600 dark:text-orange-400 cursor-pointer hover:underline"
+                        >
+                          {badge}
+                        </button>
+                      )}
+                      <BadgeNavPill
+                        totalArticles={totalCount}
+                        onClick={() => {
+                          if (onOpenBadgesModal) {
+                            onOpenBadgesModal();
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <button
                   key={f.id}
+                  type="button"
                   onClick={() => handleItemClick(item)}
                   className={`w-full flex items-center justify-between px-5 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer ${
                     active ? 'bg-orange-50/80 dark:bg-orange-950/30 font-semibold' : ''
@@ -315,22 +382,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {renderIcon(f.icon)}
                     </span>
                     <span
-                      className={`text-[15px] font-medium ${
-                        active ? 'text-orange-600 dark:text-orange-400 font-semibold' : f.color
+                      className={`text-[0.9375rem] font-medium ${
+                        f.id === 'filter-accade-oggi'
+                          ? 'text-black dark:text-white font-semibold'
+                          : active
+                          ? 'text-orange-600 dark:text-orange-400 font-semibold'
+                          : f.color
                       }`}
                     >
                       {f.label}
                     </span>
                   </div>
-                  {f.id === 'filter-accade-oggi' ? (
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
-                      Telegram
-                    </span>
-                  ) : typeof badge === 'number' && badge > 0 ? (
+                  {typeof badge === 'number' && badge > 0 ? (
                     <span
                       className={`text-sm font-semibold tabular-nums ${
-                        f.id === 'filter-ultime'
-                          ? 'text-orange-600 dark:text-orange-400'
+                        f.id === 'filter-accade-oggi'
+                          ? 'text-sky-600 dark:text-sky-400 font-bold'
                           : f.id === 'filter-non-letto'
                           ? 'text-emerald-600 dark:text-emerald-400'
                           : 'text-slate-600 dark:text-slate-400'
@@ -386,7 +453,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <span className="w-6 flex items-center justify-center shrink-0">
                               {renderIcon(item.iconName)}
                             </span>
-                            <span className="text-[14.5px] truncate font-medium group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
+                            <span className="text-[0.90625rem] truncate font-medium group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
                               {item.label}
                             </span>
                           </div>
@@ -430,7 +497,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               title="Informazioni sull'App e Privacy"
             >
               <Info className="w-4 h-4 text-orange-500 shrink-0" />
-              <span className="truncate">Info & Privacy</span>
+              <span className="truncate">Info</span>
             </button>
 
             {onOpenCookieSettings && (
@@ -448,25 +515,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          <button
-            onClick={onCycleTheme}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition cursor-pointer shrink-0"
-            title={
-              themeMode === 'system'
-                ? 'Tema: Sistema'
-                : themeMode === 'light'
-                ? 'Tema: Chiaro'
-                : 'Tema: Scuro'
-            }
-          >
-            {themeMode === 'system' ? (
-              <Monitor className="w-4 h-4" />
-            ) : themeMode === 'light' ? (
-              <Sun className="w-4 h-4 text-amber-500" />
-            ) : (
-              <Moon className="w-4 h-4 text-indigo-400" />
-            )}
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Regolazione Ingrandimento Interfaccia (Lente -/+) */}
+            <InterfaceZoomControl
+              zoomLevel={zoomLevel}
+              onZoomIn={onZoomIn}
+              onZoomOut={onZoomOut}
+              onSetZoom={onSetZoom}
+              onResetZoom={onResetZoom}
+            />
+
+            {/* Pulsante Tema (Chiaro / Scuro / Sistema) */}
+            <button
+              onClick={onCycleTheme}
+              className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition cursor-pointer shrink-0"
+              title={
+                themeMode === 'system'
+                  ? 'Tema: Sistema'
+                  : themeMode === 'light'
+                  ? 'Tema: Chiaro'
+                  : 'Tema: Scuro'
+              }
+            >
+              {themeMode === 'system' ? (
+                <Monitor className="w-4 h-4" />
+              ) : themeMode === 'light' ? (
+                <Sun className="w-4 h-4 text-amber-500" />
+              ) : (
+                <Moon className="w-4 h-4 text-indigo-400" />
+              )}
+            </button>
+          </div>
         </div>
       </aside>
     </>

@@ -1,21 +1,34 @@
 /**
- * Periodic Background Sync & Notification Handler for 5LB Magazine PWA
+ * Service Worker Helper for 5LB Magazine PWA
  * Imported into Service Worker via importScripts('/sw-sync.js')
+ * 
+ * Hosting: GitHub Pages (static).
+ * Le notifiche dei nuovi articoli vengono gestite da App.tsx tramite JSONP
+ * quando l'app è aperta o torna in primo piano.
  */
 
-const SYNC_TAG = '5lb-magazine-periodic-sync';
 const DB_NAME = '5lb_magazine_sync_db_v1';
 const STORE_NAME = 'sync_meta';
 
-// Helper to open IndexedDB inside Service Worker
+// Helper per aprire IndexedDB all'interno del Service Worker (versione 2)
 function openSyncDB() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('IDB unavailable'));
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME);
+      }
+      if (!db.objectStoreNames.contains('articles')) {
+        const articleStore = db.createObjectStore('articles', { keyPath: 'id' });
+        articleStore.createIndex('published', 'published', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('feed_meta')) {
+        db.createObjectStore('feed_meta');
+      }
+      if (!db.objectStoreNames.contains('app_state')) {
+        db.createObjectStore('app_state');
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -51,122 +64,26 @@ function setMetaValue(key, val) {
     .catch(() => {});
 }
 
-// Background update checker using conditional HTTP requests (If-Modified-Since)
-async function checkFeedUpdatesInBackground() {
-  try {
-    const [lastSeenId, lastSeenDate, lastModifiedHeader] = await Promise.all([
-      getMetaValue('lastSeenPostId'),
-      getMetaValue('lastSeenDate'),
-      getMetaValue('lastModifiedHeader'),
-    ]);
-
-    const headers = {
-      Accept: 'application/json',
-      'User-Agent': '5LB-Magazine-PWA/1.0 (+https://5lb.eu)',
-    };
-
-    if (lastModifiedHeader) {
-      headers['If-Modified-Since'] = lastModifiedHeader;
-    }
-
-    // Attempt checking via backend proxy endpoint first, fallback to Blogger feed directly
-    let res = null;
-    try {
-      res = await fetch('/api/check-updates', { headers });
-    } catch (e) {
-      // Proxy unavailable, try direct Blogger feed
-      const bloggerUrl = 'https://magazine.5lb.eu/feeds/posts/default?alt=json&max-results=3';
-      try {
-        res = await fetch(bloggerUrl, { headers });
-      } catch (errDirect) {
-        return;
-      }
-    }
-
-    if (!res) return;
-
-    // HTTP 304: Not Modified -> Zero bytes, feed hasn't changed!
-    if (res.status === 304) {
-      return;
-    }
-
-    if (!res.ok) return;
-
-    const data = await res.json();
-    const newLastModified = res.headers.get('Last-Modified') || res.headers.get('Date') || new Date().toUTCString();
-
-    let postInfo = null;
-
-    if (data.id && data.title) {
-      // Format from /api/check-updates
-      postInfo = {
-        id: data.id,
-        title: data.title,
-        summary: data.summary || '',
-        published: data.published,
-        link: data.link || 'https://magazine.5lb.eu',
-      };
-    } else if (data.feed && Array.isArray(data.feed.entry) && data.feed.entry.length > 0) {
-      // Direct Blogger format
-      const entry = data.feed.entry[0];
-      const id = entry.id?.$t;
-      const title = entry.title?.$t || 'Nuovo articolo';
-      const published = entry.published?.$t || new Date().toISOString();
-      const content = entry.summary?.$t || entry.content?.$t || '';
-      const summary = content.replace(/<[^>]+>/g, ' ').slice(0, 150).trim();
-      let link = 'https://magazine.5lb.eu';
-      if (Array.isArray(entry.link)) {
-        const alt = entry.link.find((l) => l.rel === 'alternate');
-        if (alt && alt.href) link = alt.href;
-      }
-      postInfo = { id, title, summary, published, link };
-    }
-
-    if (!postInfo || !postInfo.id) return;
-
-    // Verify if article is genuinely newer
-    const isDifferentId = !lastSeenId || postInfo.id !== lastSeenId;
-    const isNewerDate = !lastSeenDate || new Date(postInfo.published).getTime() > new Date(lastSeenDate).getTime();
-
-    if (isDifferentId && isNewerDate) {
-      // Save new state to IndexedDB
-      await Promise.all([
-        setMetaValue('lastSeenPostId', postInfo.id),
-        setMetaValue('lastSeenDate', postInfo.published),
-        setMetaValue('lastModifiedHeader', newLastModified),
-      ]);
-
-      // Trigger native notification
-      if (self.registration && self.registration.showNotification) {
-        await self.registration.showNotification('Nuovo articolo: ' + postInfo.title, {
-          body: (postInfo.summary || 'Un nuovo articolo è disponibile su 5LB Magazine. Tocca per leggere.').slice(0, 110) + '...',
-          icon: '/pwa-192x192.png',
-          badge: '/icon.svg',
-          tag: postInfo.id,
-          data: {
-            postId: postInfo.id,
-            url: postInfo.link,
-          },
-        });
-      }
-    }
-  } catch (err) {
-    // Silent fail in background sync
-  }
-}
-
-// Listen to Periodic Background Sync events
-self.addEventListener('periodicsync', (event) => {
-  if (event.tag === SYNC_TAG) {
-    event.waitUntil(checkFeedUpdatesInBackground());
-  }
-});
-
-// Handle clicking on native push/periodic notifications
+// Gestione click sulle notifiche di sistema
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const urlToOpen = event.notification.data?.url || '/';
+  const scopeUrl = self.registration?.scope || '/';
+  const rawUrlToOpen = event.notification.data?.url || scopeUrl;
   const postId = event.notification.data?.postId;
+
+  let urlToOpen = scopeUrl;
+  try {
+    const parsed = new URL(rawUrlToOpen, scopeUrl);
+    const scopeParsed = new URL(scopeUrl);
+    const isSameOrigin = parsed.origin === scopeParsed.origin;
+    const isMagazineHttps = parsed.protocol === 'https:' && parsed.hostname.toLowerCase().replace(/^www\./, '') === 'magazine.5lb.eu';
+
+    if (isSameOrigin || isMagazineHttps) {
+      urlToOpen = parsed.href;
+    }
+  } catch (e) {
+    urlToOpen = scopeUrl;
+  }
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
@@ -186,11 +103,41 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Sync message from client to keep lastSeenPostId updated
+// Listener messaggi per sincronizzazione e aggiornamenti PWA
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === '5lb:update-last-seen') {
+  if (!event.data) return;
+
+  // Supporto skipWaiting per attivazione immediata di nuove versioni
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+    return;
+  }
+
+  // Allineamento metadati da client
+  if (event.data.type === '5lb:update-last-seen') {
     if (event.data.postId) setMetaValue('lastSeenPostId', event.data.postId);
     if (event.data.published) setMetaValue('lastSeenDate', event.data.published);
     if (event.data.lastModified) setMetaValue('lastModifiedHeader', event.data.lastModified);
+    if (event.data.etag) setMetaValue('etagHeader', event.data.etag);
+  }
+
+  // Pre-caricamento proattivo delle immagini per visualizzazione offline
+  if (event.data.type === '5lb:cache-images' && Array.isArray(event.data.urls)) {
+    if (typeof caches !== 'undefined') {
+      caches.open('5lb-article-images').then((cache) => {
+        event.data.urls.forEach((imgUrl) => {
+          if (imgUrl && typeof imgUrl === 'string') {
+            fetch(imgUrl, { mode: 'no-cors' })
+              .then((res) => {
+                if (res && (res.ok || res.type === 'opaque')) {
+                  cache.put(imgUrl, res);
+                }
+              })
+              .catch(() => {});
+          }
+        });
+      }).catch(() => {});
+    }
   }
 });
+

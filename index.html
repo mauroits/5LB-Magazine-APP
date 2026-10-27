@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>5LB Magazine</title>
-    <meta name="description" content="La rivista sulle 5 Leggi Biologiche - App ufficiale con feed RSS, risorse informative e formative." />
-    <meta property="og:title" content="5LB Magazine" />
-    <meta property="og:description" content="La rivista sulle 5 Leggi Biologiche - App ufficiale con feed RSS, risorse informative e formative." />
+    <title>v2.1 5LB Magazine - La rivista sulle 5 Leggi Biologiche</title>
+    <meta name="description" content="App ufficiale di 5LB Magazine (magazine.5lb.eu) con feed RSS sulle 5 Leggi Biologiche, risorse informative e formative." />
+    <meta property="og:title" content="v2.1 5LB Magazine - La rivista sulle 5 Leggi Biologiche" />
+    <meta property="og:description" content="App ufficiale di 5LB Magazine (magazine.5lb.eu) con feed RSS sulle 5 Leggi Biologiche, risorse informative e formative." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#000836" />
@@ -20,6 +20,28 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+
+    <!-- Early capture of PWA beforeinstallprompt event for Chromium browsers -->
+    <script>
+      window.__pwaDeferredPrompt = null;
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        window.__pwaDeferredPrompt = e;
+        window.dispatchEvent(new CustomEvent('5lb:beforeinstallprompt', { detail: e }));
+      });
+
+      // Restore saved interface zoom immediately to prevent layout shift on load
+      try {
+        var savedZoom = localStorage.getItem('5lb_interface_zoom_v1');
+        if (savedZoom) {
+          var parsedZoom = parseInt(savedZoom, 10);
+          if (!isNaN(parsedZoom) && parsedZoom >= 80 && parsedZoom <= 140) {
+            document.documentElement.style.fontSize = parsedZoom + '%';
+            document.documentElement.style.setProperty('--app-interface-zoom', (parsedZoom / 100).toString());
+          }
+        }
+      } catch (e) {}
+    </script>
 
     <!-- Google Consent Mode v2 & Google Analytics (gtag.js) -->
     <script>

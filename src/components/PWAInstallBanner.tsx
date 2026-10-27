@@ -41,7 +41,7 @@ export const PWAInstallBanner: React.FC = () => {
 
   const deviceName = isIPad ? 'iPad' : 'iPhone';
 
-  const handleActionClick = () => {
+  const handleActionClick = async () => {
     if (isInstalled && !isInstallable) {
       setActiveModal('launch');
     } else if (isIOS && isIOSOtherBrowser) {
@@ -49,9 +49,17 @@ export const PWAInstallBanner: React.FC = () => {
     } else if (isIOS && isIOSSafari) {
       setActiveModal('ios');
     } else if (isInstallable) {
-      install();
+      const ok = await install();
+      if (!ok && !isStandalone) {
+        setActiveModal('chrome');
+      }
     } else if (isUnsupportedBrowser) {
       setActiveModal('unsupported');
+    } else {
+      const ok = await install();
+      if (!ok) {
+        setActiveModal('chrome');
+      }
     }
   };
 
@@ -85,10 +93,11 @@ export const PWAInstallBanner: React.FC = () => {
 
             <button
               onClick={handleDismiss}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/35 active:bg-white/45 text-white border border-white/40 flex items-center justify-center shrink-0 shadow-md transition active:scale-90 cursor-pointer"
               title="Continua nel browser"
+              aria-label="Chiudi avviso"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4 stroke-[2.5]" />
             </button>
           </div>
         </div>
@@ -171,10 +180,11 @@ export const PWAInstallBanner: React.FC = () => {
 
           <button
             onClick={handleDismiss}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/35 active:bg-white/45 text-white border border-white/40 flex items-center justify-center shrink-0 shadow-md transition active:scale-90 cursor-pointer"
             title="Non ora"
+            aria-label="Chiudi avviso"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4 stroke-[2.5]" />
           </button>
         </div>
       </div>
@@ -185,6 +195,7 @@ export const PWAInstallBanner: React.FC = () => {
         mode={activeModal || 'unsupported'}
         browserName={unsupportedBrowserName}
         isIPad={isIPad}
+        onRetryInstall={install}
       />
     </>
   );

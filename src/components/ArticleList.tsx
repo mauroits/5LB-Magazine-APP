@@ -11,24 +11,31 @@ import {
   Filter,
   LayoutGrid,
   List,
-  Sparkles,
   X,
   CheckCheck,
   Shuffle,
   ArrowDownCircle,
   Globe,
-  Search
+  Search,
+  WifiOff,
+  RotateCw,
 } from 'lucide-react';
 import { BloggerPost, ActiveFilter } from '../types';
 import { formatItalianDate } from '../services/bloggerFeed';
-import { AI_BANNER_CONFIG } from '../config/infoContent';
+import { toHttpsUrl } from '../utils/safeUrl';
+import { decodeHtmlEntities } from '../utils/textUtils';
+import { ArchiveBadgeButton } from './BadgeIcon';
+import { getCurrentBadge } from '../services/badgeService';
 
 interface ArticleListProps {
   posts: BloggerPost[];
+  totalArchiveArticles?: number;
   isLoading: boolean;
   isLoadingMore?: boolean;
   hasMore?: boolean;
   onLoadMore?: () => void;
+  loadError?: boolean;
+  onRetry?: () => void;
   activeFilter: ActiveFilter;
   filterTitle: string;
   searchQuery?: string;
@@ -39,16 +46,20 @@ interface ArticleListProps {
   onToggleFavorite: (postId: string, e: React.MouseEvent) => void;
   onToggleRead: (postId: string, e: React.MouseEvent) => void;
   onResetFilter: () => void;
-  onOpenNotebook: () => void;
+  onOpenNotebook?: () => void;
   onMarkAllAsRead?: () => void;
+  onOpenBadgesModal?: () => void;
 }
 
 export const ArticleList: React.FC<ArticleListProps> = ({
   posts,
+  totalArchiveArticles,
   isLoading,
   isLoadingMore = false,
   hasMore = false,
   onLoadMore,
+  loadError = false,
+  onRetry,
   activeFilter,
   filterTitle,
   searchQuery = '',
@@ -59,10 +70,13 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   onToggleFavorite,
   onToggleRead,
   onResetFilter,
-  onOpenNotebook,
   onMarkAllAsRead,
+  onOpenBadgesModal,
 }) => {
   const [viewMode, setViewMode] = useState<'card' | 'compact'>('card');
+  const isAllArchive = activeFilter.type === 'quick' && activeFilter.id === 'all';
+  const badgeArticleCount = totalArchiveArticles ?? posts.length;
+
   const [sortMode, setSortMode] = useState<'chronological' | 'shuffle'>(() => {
     try {
       const saved = localStorage.getItem('5lb_sort_mode_v1');
@@ -87,23 +101,6 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   });
 
   const [isShuffleSpinning, setIsShuffleSpinning] = useState(false);
-
-  const [isAiBannerDismissed, setIsAiBannerDismissed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('5lb_dismiss_ai_banner_v1') === 'true';
-    } catch (e) {
-      return false;
-    }
-  });
-
-  const handleDismissAiBanner = () => {
-    setIsAiBannerDismissed(true);
-    try {
-      localStorage.setItem('5lb_dismiss_ai_banner_v1', 'true');
-    } catch (e) {
-      // ignore
-    }
-  };
 
   const handleSelectChronological = () => {
     setSortMode('chronological');
@@ -225,27 +222,44 @@ export const ArticleList: React.FC<ArticleListProps> = ({
       {/* Subheader Toolbar: Filter badge & view switcher */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-orange-100 text-orange-700 dark:bg-orange-950/70 dark:text-orange-300">
-            <Filter className="w-4 h-4" />
-          </div>
+          {activeFilter.type === 'quick' && activeFilter.id === 'all' ? (
+            <ArchiveBadgeButton
+              totalArticles={badgeArticleCount}
+              onClick={() => {
+                if (onOpenBadgesModal) onOpenBadgesModal();
+              }}
+            />
+          ) : (
+            <div className="p-1.5 rounded-lg bg-orange-100 text-orange-700 dark:bg-orange-950/70 dark:text-orange-300">
+              <Filter className="w-4 h-4" />
+            </div>
+          )}
           <div>
-            <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
-              {filterTitle}
-            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
+                {filterTitle}
+              </h1>
+              {activeFilter.type === 'quick' && activeFilter.id === 'all' && (() => {
+                const badge = getCurrentBadge(badgeArticleCount);
+                if (badge) {
+                  return (
+                    <button
+                      onClick={() => onOpenBadgesModal && onOpenBadgesModal()}
+                      className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full cursor-pointer hover:scale-105 transition-transform ${badge.badgeTag}`}
+                      title="Clicca per visualizzare tutti i tuoi badge"
+                    >
+                      {badge.name}
+                    </button>
+                  );
+                }
+                return null;
+              })()}
+            </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {displayedPosts.length} {displayedPosts.length === 1 ? 'articolo trovato' : 'articoli trovati'}
-              {sortMode === 'shuffle' && ' • Casuale'}
+              {displayedPosts.length} {displayedPosts.length === 1 ? 'articolo trovato' : 'articoli'}
+              {sortMode === 'shuffle' ? ' • Casuale' : ' • Recenti'}
             </p>
           </div>
-
-          {(activeFilter.type === 'rss' || (activeFilter.type === 'quick' && activeFilter.id !== 'all')) && (
-            <button
-              onClick={onResetFilter}
-              className="ml-2 text-xs font-semibold text-orange-600 dark:text-orange-400 hover:underline cursor-pointer"
-            >
-              Mostra tutte
-            </button>
-          )}
 
           {searchQuery?.trim() && (
             <div className="flex items-center gap-1.5 ml-1.5 px-2.5 py-1 rounded-full bg-orange-100 dark:bg-orange-950/80 text-orange-800 dark:text-orange-200 text-xs font-medium border border-orange-200 dark:border-orange-800">
@@ -276,7 +290,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
               title="Ordine cronologico (dal più recente)"
             >
               <Clock className="w-4 h-4" />
-              <span className="hidden sm:inline">Ultime</span>
+              <span className="hidden sm:inline">Recenti</span>
             </button>
 
             <button
@@ -336,70 +350,54 @@ export const ArticleList: React.FC<ArticleListProps> = ({
         </div>
       </div>
 
-      {/* AI banner highlight (Dismissible) */}
-      {!isAiBannerDismissed && (
-        <div className="relative mb-6 rounded-2xl bg-gradient-to-r from-blue-900/40 via-indigo-900/30 to-purple-900/40 border border-blue-500/20 p-4 pr-11 flex flex-col gap-3 shadow-xs">
-          {/* Dismiss button */}
-          <button
-            onClick={handleDismissAiBanner}
-            className="absolute top-2.5 right-2.5 p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-black/10 dark:hover:bg-white/10 transition cursor-pointer"
-            title="Chiudi banner IA"
-          >
-            <X className="w-4 h-4" />
-          </button>
-
-          {/* Scritta 'Ricerca semantica' centrata */}
-          <div className="w-full flex justify-center">
-            <span className="text-[10px] uppercase font-bold tracking-wider bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 px-3 py-0.5 rounded-full inline-flex items-center justify-center text-center shadow-xs">
-              {AI_BANNER_CONFIG.badge}
-            </span>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-md">
-                <Sparkles className="w-5 h-5 text-amber-300" />
-              </div>
-              <div>
-                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  {AI_BANNER_CONFIG.title}
-                </h4>
-                <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-                  {AI_BANNER_CONFIG.description}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={onOpenNotebook}
-              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs shadow-sm transition active:scale-95 shrink-0 self-end sm:self-auto cursor-pointer"
-            >
-              {AI_BANNER_CONFIG.buttonText}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Empty State */}
+      {/* Empty / Error State */}
       {displayedPosts.length === 0 && !isLoading && (() => {
+        if (loadError) {
+          return (
+            <div className="text-center py-14 px-4 bg-white dark:bg-slate-900 rounded-2xl border border-rose-200 dark:border-rose-900/40 shadow-xs">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 mx-auto flex items-center justify-center mb-3">
+                <WifiOff className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                Impossibile contattare la fonte dei dati
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
+                Non è stato possibile caricare i contenuti della sezione. Verifica la connessione di rete e riprova.
+              </p>
+              {onRetry && (
+                <div className="mt-5 flex items-center justify-center">
+                  <button
+                    onClick={onRetry}
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition shadow-sm flex items-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    <span>Riprova</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        }
+
         const isSubcategory =
           activeFilter.type === 'rss' ||
           (activeFilter.type === 'quick' && activeFilter.id !== 'all');
 
         return (
-          <div className="text-center py-14 px-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <div className="text-center py-14 px-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
             <BookOpen className="w-12 h-12 mx-auto text-slate-400 mb-3" />
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
               {searchQuery?.trim()
                 ? isSubcategory
-                  ? `Nessun articolo trovato in ${filterTitle} per "${searchQuery}"`
-                  : `Nessun articolo trovato per "${searchQuery}"`
+                  ? `Nessun articolo trovato in questa categoria per "${searchQuery}"`
+                  : `Nessun articolo trovato nell'archivio locale per "${searchQuery}"`
                 : 'Nessun articolo trovato in questa sezione'}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
               {searchQuery?.trim()
                 ? isSubcategory
-                  ? `Non ci sono corrispondenze in questa sottocategoria. Puoi cercare in tutti gli articoli (sezione Ultime Pubblicazioni) oppure tornare alla home.`
-                  : 'Nessun riscontro tra gli articoli attualmente memorizzati. Puoi cercare nell\'archivio online di 5LB Magazine su Blogger per importarli.'
+                  ? `La ricerca è limitata a questa categoria e non ha prodotto risultati. Puoi cercare in tutto l'archivio locale per trovare corrispondenze in altre sezioni.`
+                  : 'Nessun riscontro tra gli articoli attualmente memorizzati sul dispositivo. Puoi cercare altri risultati nell\'archivio online di Blogger.'
                 : 'Non ci sono articoli per i filtri attuali. Puoi aggiornare i feed o tornare alla home.'}
             </p>
 
@@ -410,7 +408,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                   className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition shadow-sm flex items-center gap-2 cursor-pointer active:scale-95"
                 >
                   <Search className="w-3.5 h-3.5" />
-                  <span>Cerca in tutti gli articoli</span>
+                  <span>Cerca in tutto l'archivio locale</span>
                 </button>
               )}
 
@@ -418,17 +416,17 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                 <button
                   onClick={() => onSearchOnline(searchQuery)}
                   disabled={isSearchingOnline}
-                  className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-60 active:scale-95"
+                  className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed active:scale-95"
                 >
                   {isSearchingOnline ? (
                     <>
                       <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Ricerca nell'archivio online...</span>
+                      <span>Ricerca online in corso...</span>
                     </>
                   ) : (
                     <>
                       <Globe className="w-3.5 h-3.5" />
-                      <span>Cerca nell'archivio online</span>
+                      <span>Cerca altri risultati online</span>
                     </>
                   )}
                 </button>
@@ -448,34 +446,41 @@ export const ArticleList: React.FC<ArticleListProps> = ({
       {/* Grid or Compact List View */}
       {viewMode === 'card' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-          {displayedPosts.map((post) => (
-            <article
-              key={post.id}
-              onClick={() => onSelectPost(post)}
-              className={`group flex flex-col bg-white dark:bg-slate-900 rounded-2xl border transition-all duration-200 overflow-hidden cursor-pointer hover:shadow-lg hover:-translate-y-0.5 ${
-                post.isRead
-                  ? 'border-slate-200 dark:border-slate-800 opacity-90'
-                  : 'border-orange-200/80 dark:border-orange-950/60 shadow-sm ring-1 ring-orange-500/10'
-              }`}
-            >
-              {/* Thumbnail image if available */}
-              {post.thumbnail && (
-                <div className="relative aspect-video w-full overflow-hidden bg-slate-100 dark:bg-slate-800">
-                  <img
-                    src={post.thumbnail}
-                    alt={post.title}
-                    loading="lazy"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              )}
+          {displayedPosts.map((post) => {
+            const safeThumb = toHttpsUrl(post.thumbnail);
+            return (
+              <article
+                key={post.id}
+                onClick={() => onSelectPost(post)}
+                className={`group flex flex-col bg-white dark:bg-slate-900 rounded-2xl border transition-all duration-200 overflow-hidden cursor-pointer hover:shadow-lg hover:-translate-y-0.5 ${
+                  post.isRead
+                    ? 'border-slate-200 dark:border-slate-800 opacity-90'
+                    : 'border-orange-200/80 dark:border-orange-950/60 shadow-sm ring-1 ring-orange-500/10'
+                }`}
+              >
+                {/* Thumbnail image in framed inset container if available and valid https */}
+                {safeThumb && (
+                  <div className="thumbnail-frame-wrapper p-3 sm:p-3.5 pb-0">
+                    <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/90 dark:border-slate-700/80 shadow-2xs">
+                      <img
+                        src={safeThumb}
+                        alt={decodeHtmlEntities(post.title)}
+                        loading="lazy"
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                        onError={(e) => {
+                          const wrapper = (e.target as HTMLElement).closest('.thumbnail-frame-wrapper');
+                          if (wrapper) {
+                            (wrapper as HTMLElement).style.display = 'none';
+                          }
+                        }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                )}
 
-              {/* Card Body */}
-              <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
+                {/* Card Body */}
+                <div className={`p-4 sm:p-5 ${safeThumb ? 'pt-3 sm:pt-3.5' : ''} flex-1 flex flex-col justify-between`}>
                 <div>
                   {/* Top meta row */}
                   <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-2">
@@ -511,7 +516,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                         className={`p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition ${
                           post.isFavorite ? 'text-red-500' : 'text-slate-400 hover:text-slate-700'
                         }`}
-                        title={post.isFavorite ? 'Rimuovi dai preferiti' : 'Aggiungi a Ti piace'}
+                        title={post.isFavorite ? 'Rimuovi dai salvati' : 'Aggiungi a Salva per dopo'}
                       >
                         <Heart
                           className={`w-3.5 h-3.5 ${
@@ -526,12 +531,12 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                   <h3 className={`text-base sm:text-lg font-bold leading-snug line-clamp-3 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors ${
                     post.isRead ? 'text-slate-700 dark:text-slate-300 font-semibold' : 'text-slate-900 dark:text-slate-100'
                   }`}>
-                    {post.title}
+                    {decodeHtmlEntities(post.title)}
                   </h3>
 
                   {/* Snippet */}
                   <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400 line-clamp-3 leading-relaxed">
-                    {post.summary}
+                    {decodeHtmlEntities(post.summary)}
                   </p>
                 </div>
 
@@ -542,7 +547,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                       key={idx}
                       className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
                     >
-                      {cat}
+                      {decodeHtmlEntities(cat)}
                     </span>
                   ))}
                   {post.categories.length > 3 && (
@@ -553,7 +558,8 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                 </div>
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
       ) : (
         /* Compact List View */
@@ -585,14 +591,14 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                     </span>
                     {post.categories[0] && (
                       <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 font-medium truncate max-w-[120px]">
-                        {post.categories[0]}
+                        {decodeHtmlEntities(post.categories[0])}
                       </span>
                     )}
                   </div>
                   <h4 className={`text-sm sm:text-base font-semibold truncate ${
                     post.isRead ? 'text-slate-700 dark:text-slate-300' : 'text-slate-900 dark:text-slate-100 font-bold'
                   }`}>
-                    {post.title}
+                    {decodeHtmlEntities(post.title)}
                   </h4>
                 </div>
               </div>
@@ -638,7 +644,57 @@ export const ArticleList: React.FC<ArticleListProps> = ({
         </div>
       )}
 
-      {!hasMore && displayedPosts.length > 0 && !isLoading && (
+      {/* Bottom action when searching within a specific category */}
+      {searchQuery?.trim() && !isAllArchive && onSearchAllArticles && displayedPosts.length > 0 && (
+        <div className="mt-8 mb-6 p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center shadow-xs flex flex-col items-center justify-center gap-2.5">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <Filter className="w-4 h-4 text-orange-500" />
+            <span>I risultati sopra sono limitati a questa categoria ({displayedPosts.length})</span>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md">
+            Vuoi estendere la ricerca di "{searchQuery.trim()}" a tutti gli articoli del tuo archivio locale?
+          </p>
+          <button
+            onClick={onSearchAllArticles}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold text-xs sm:text-sm shadow-sm transition cursor-pointer"
+          >
+            <Search className="w-4 h-4" />
+            <span>Cerca in tutto l'archivio locale</span>
+          </button>
+        </div>
+      )}
+
+      {/* Bottom action when searching in the full local archive */}
+      {searchQuery?.trim() && isAllArchive && onSearchOnline && displayedPosts.length > 0 && (
+        <div className="mt-8 mb-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-orange-50 to-amber-50 dark:from-slate-900 dark:to-slate-800/80 border border-orange-200 dark:border-slate-700 text-center shadow-xs flex flex-col items-center justify-center gap-2.5">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <Globe className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+            <span>Cerchi altri risultati non ancora presenti sul dispositivo?</span>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md">
+            Interroga l'archivio online di 5LB Magazine per scaricare nuovi articoli relativi a "{searchQuery.trim()}".
+          </p>
+          <button
+            onClick={() => onSearchOnline(searchQuery)}
+            disabled={isSearchingOnline}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-semibold text-xs sm:text-sm shadow-md transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isSearchingOnline ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Ricerca online in corso...</span>
+              </>
+            ) : (
+              <>
+                <Globe className="w-4 h-4" />
+                <span>Cerca altri risultati online</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {!searchQuery?.trim() && !hasMore && displayedPosts.length > 0 && !isLoading && (
         <div className="mt-8 mb-6 text-center">
           <p className="text-xs text-slate-400 dark:text-slate-500">
             Hai visualizzato tutti gli articoli disponibili ({displayedPosts.length})

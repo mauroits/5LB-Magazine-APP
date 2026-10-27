@@ -34,10 +34,18 @@ export const PUBLICATION_DELAY_HOURS = 2;
 // Filtri rapidi superiori
 export const QUICK_FILTERS: NavItem[] = [
   {
-    id: 'filter-ultime',
-    label: 'Ultime',
+    id: 'filter-accade-oggi',
+    label: 'Accade oggi',
     type: 'filter',
-    iconName: 'clock',
+    iconName: 'users',
+    description: 'Feed in tempo reale dai canali social',
+  },
+  {
+    id: 'filter-ultime',
+    label: 'Il mio archivio',
+    type: 'filter',
+    iconName: 'archive',
+    description: 'Tutti gli articoli pubblicati su 5LB Magazine',
   },
   {
     id: 'filter-non-letto',
@@ -47,17 +55,9 @@ export const QUICK_FILTERS: NavItem[] = [
   },
   {
     id: 'filter-ti-piace',
-    label: 'Ti piace',
+    label: 'Salvati per dopo',
     type: 'filter',
     iconName: 'heart',
-  },
-  {
-    id: 'filter-accade-oggi',
-    label: 'Accade oggi',
-    type: 'link',
-    iconName: 'send',
-    targetUrl: 'https://t.me/s/magazine5LB',
-    description: 'Canale Telegram @magazine5LB aperto direttamente all’interno dell’app',
   },
 ];
 

@@ -19,13 +19,20 @@ import {
   Pause,
   SkipBack,
   SkipForward,
-  Square
+  Square,
+  Facebook,
+  Instagram,
+  Youtube,
+  Send
 } from 'lucide-react';
 import { BloggerPost } from '../types';
-import { formatItalianDate } from '../services/bloggerFeed';
+import { formatItalianDate, isMagazineUrl } from '../services/bloggerFeed';
 import { highlightHtmlContent } from '../utils/searchUtils';
+import { sanitizeArticleHtml } from '../utils/sanitizeHtml';
+import { toHttpsUrl, toHttpOrHttpsUrl } from '../utils/safeUrl';
 import { trackEvent } from '../services/analytics';
 import { openExternalBrowser } from '../utils/browserLauncher';
+import { decodeHtmlEntities } from '../utils/textUtils';
 
 export interface ArticleChunk {
   index: number;
@@ -72,13 +79,9 @@ export function extractArticleChunks(
       });
 
       const rawText = doc.body.textContent || '';
-      const cleanBody = rawText
+      const cleanBody = decodeHtmlEntities(rawText)
         .replace(/\r\n/g, '\n')
         .replace(/\t/g, ' ')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
         .replace(/[ \t]+/g, ' ')
         .replace(/\n\s*\n+/g, '\n')
         .trim();
@@ -172,6 +175,7 @@ interface ArticleModalProps {
   onToggleFavorite: (postId: string) => void;
   isFavorite: boolean;
   initialSearchQuery?: string;
+  onInterceptLink?: (url: string) => void;
 }
 
 export const ArticleModal: React.FC<ArticleModalProps> = ({
@@ -180,6 +184,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   onToggleFavorite,
   isFavorite,
   initialSearchQuery = '',
+  onInterceptLink,
 }) => {
   const [fontSize, setFontSize] = useState<number>(17); // base px
   const [copied, setCopied] = useState(false);
@@ -337,14 +342,24 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     };
   }, [post?.id, stopSpeech]);
 
+  // Sanitize raw HTML content (from Blogger and Telegram feed) with DOMPurify
+  const safeHtmlContent = useMemo(() => {
+    if (!post?.content) return '';
+    return sanitizeArticleHtml(post.content);
+  }, [post?.content]);
+
   // Highlighted HTML content & match count computation
   const { highlightedHtml, totalMatches } = useMemo(() => {
-    if (!post?.content) return { highlightedHtml: '', totalMatches: 0 };
+    if (!safeHtmlContent) return { highlightedHtml: '', totalMatches: 0 };
     if (!isSearchOpen || !searchWord.trim()) {
-      return { highlightedHtml: post.content, totalMatches: 0 };
+      return { highlightedHtml: safeHtmlContent, totalMatches: 0 };
     }
-    return highlightHtmlContent(post.content, searchWord, activeIndex, isExactWord);
-  }, [post?.content, isSearchOpen, searchWord, activeIndex, isExactWord]);
+    const highlighted = highlightHtmlContent(safeHtmlContent, searchWord, activeIndex, isExactWord);
+    return {
+      highlightedHtml: sanitizeArticleHtml(highlighted.highlightedHtml),
+      totalMatches: highlighted.totalMatches,
+    };
+  }, [safeHtmlContent, isSearchOpen, searchWord, activeIndex, isExactWord]);
 
   // Jump to next match
   const handleNextMatch = useCallback(() => {
@@ -382,28 +397,35 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     }
   }, [activeIndex, isSearchOpen, totalMatches, searchWord]);
 
+  // Safe HTTP/HTTPS URL for original post link
+  const safePostLink = useMemo(() => {
+    return toHttpOrHttpsUrl(post?.link);
+  }, [post?.link]);
+
   if (!post) return null;
 
   const handleShare = async () => {
     const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+    const shareUrl = safePostLink || undefined;
+
     trackEvent('share', {
       method: canShare ? 'native_share' : 'clipboard',
       content_type: 'article',
       item_id: post.id,
-      url: post.link,
+      url: shareUrl,
     });
 
-    if (canShare) {
+    if (canShare && shareUrl) {
       try {
         await navigator.share({
-          url: post.link,
+          url: shareUrl,
         });
       } catch (e) {
         // user cancelled
       }
-    } else {
+    } else if (shareUrl) {
       try {
-        await navigator.clipboard.writeText(post.link);
+        await navigator.clipboard.writeText(shareUrl);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       } catch (e) {
@@ -506,19 +528,21 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Share2 className="w-4 h-4" />}
             </button>
 
-            <a
-              href={post.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => {
-                e.preventDefault();
-                openExternalBrowser(post.link);
-              }}
-              className="p-2 rounded-xl text-slate-500 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-              title="Apri articolo originale su magazine.5lb.eu"
-            >
-              <ExternalLink className="w-4 h-4" />
-            </a>
+            {safePostLink && (
+              <a
+                href={safePostLink ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openExternalBrowser(safePostLink);
+                }}
+                className="p-2 rounded-xl text-slate-500 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                title="Apri articolo originale su magazine.5lb.eu"
+              >
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            )}
           </div>
         </div>
 
@@ -708,7 +732,88 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         )}
 
         {/* Scrollable Article Body */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 sm:px-10 py-6">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-y-contain px-5 sm:px-10 py-6">
+          {/* Comment row if opened from Accade Oggi feed */}
+          {post.isAccadeOggi && (
+            <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-sky-50 via-blue-50/60 to-indigo-50/60 dark:from-slate-800 dark:via-slate-800/90 dark:to-slate-800 border border-sky-200 dark:border-slate-700 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                  Commenta su:
+                </span>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Facebook */}
+                  <a
+                    href="https://www.facebook.com/5lbEvidenceBased"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      trackEvent('social_comment_click', { network: 'facebook', article_title: post.title });
+                      openExternalBrowser('https://www.facebook.com/5lbEvidenceBased');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1877F2]/10 hover:bg-[#1877F2] text-[#1877F2] hover:text-white dark:bg-[#1877F2]/20 dark:hover:bg-[#1877F2] dark:text-sky-300 dark:hover:text-white text-xs font-semibold transition active:scale-95 cursor-pointer border border-[#1877F2]/20"
+                    title="Commenta su Facebook"
+                  >
+                    <Facebook className="w-3.5 h-3.5 fill-current" />
+                    <span>Facebook</span>
+                  </a>
+
+                  {/* Instagram */}
+                  <a
+                    href="https://www.instagram.com/5lbmagazine/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      trackEvent('social_comment_click', { network: 'instagram', article_title: post.title });
+                      openExternalBrowser('https://www.instagram.com/5lbmagazine/');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#E4405F]/10 hover:bg-[#E4405F] text-[#E4405F] hover:text-white dark:bg-[#E4405F]/20 dark:hover:bg-[#E4405F] dark:text-pink-300 dark:hover:text-white text-xs font-semibold transition active:scale-95 cursor-pointer border border-[#E4405F]/20"
+                    title="Commenta su Instagram"
+                  >
+                    <Instagram className="w-3.5 h-3.5" />
+                    <span>Instagram</span>
+                  </a>
+
+                  {/* Telegram */}
+                  <a
+                    href="https://t.me/magazine5LB"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      trackEvent('social_comment_click', { network: 'telegram', article_title: post.title });
+                      openExternalBrowser('https://t.me/magazine5LB');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#229ED9]/10 hover:bg-[#229ED9] text-[#229ED9] hover:text-white dark:bg-[#229ED9]/20 dark:hover:bg-[#229ED9] dark:text-sky-300 dark:hover:text-white text-xs font-semibold transition active:scale-95 cursor-pointer border border-[#229ED9]/20"
+                    title="Commenta su Telegram"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Telegram</span>
+                  </a>
+
+                  {/* YouTube */}
+                  <a
+                    href="https://www.youtube.com/@5LBmagazine/posts"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      trackEvent('social_comment_click', { network: 'youtube', article_title: post.title });
+                      openExternalBrowser('https://www.youtube.com/@5LBmagazine/posts');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FF0000]/10 hover:bg-[#FF0000] text-[#FF0000] hover:text-white dark:bg-[#FF0000]/20 dark:hover:bg-[#FF0000] dark:text-rose-300 dark:hover:text-white text-xs font-semibold transition active:scale-95 cursor-pointer border border-[#FF0000]/20"
+                    title="Commenta su YouTube"
+                  >
+                    <Youtube className="w-3.5 h-3.5" />
+                    <span>YouTube</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Categories row */}
           <div className="flex flex-wrap gap-1.5 mb-3">
             {post.categories.map((c, i) => (
@@ -716,14 +821,14 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 key={i}
                 className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
               >
-                {c}
+                {decodeHtmlEntities(c)}
               </span>
             ))}
           </div>
 
           {/* Title */}
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-slate-50 leading-tight mb-4">
-            {post.title}
+            {decodeHtmlEntities(post.title)}
           </h1>
 
           {/* Metadata bar */}
@@ -737,62 +842,110 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               <span>{post.author.name}</span>
             </div>
             <div className="ml-auto text-xs font-medium text-slate-400">
-              Fonte: magazine.5lb.eu
+              {post.isAccadeOggi ? 'Fonte: Canale Telegram @magazine5LB' : 'Fonte: magazine.5lb.eu'}
             </div>
           </div>
 
           {/* Article HTML Content formatted with custom typography */}
           <div
-            className="article-content max-w-none text-slate-800 dark:text-slate-200 leading-relaxed space-y-4 text-justify [text-align:justify] hyphens-auto [&_p]:text-justify [&_p]:[text-align:justify] [&_p]:hyphens-auto [&_p]:mb-4 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-6 [&_h3]:text-lg [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-4 [&_blockquote]:border-orange-500 [&_blockquote]:pl-4 [&_blockquote]:italic [&_img]:rounded-2xl [&_img]:max-w-full [&_img]:h-auto [&_img]:my-4 [&_a]:text-orange-600 dark:[&_a]:text-orange-400 [&_a]:underline [&_a]:font-medium hover:[&_a]:text-orange-700 dark:hover:[&_a]:text-orange-300"
+            className="article-content max-w-none text-slate-800 dark:text-slate-200 leading-relaxed space-y-4 text-justify [text-align:justify] hyphens-auto [&_p]:text-justify [&_p]:[text-align:justify] [&_p]:hyphens-auto [&_p]:mb-4 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-6 [&_h3]:text-lg [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-4 [&_blockquote]:border-orange-500 [&_blockquote]:pl-4 [&_blockquote]:italic [&_img]:rounded-xl [&_img]:border [&_img]:border-slate-200/90 dark:[&_img]:border-slate-800 [&_img]:bg-slate-50 dark:[&_img]:bg-slate-900/40 [&_img]:shadow-xs [&_img]:max-w-full [&_img]:h-auto [&_img]:my-4 [&_a]:text-orange-600 dark:[&_a]:text-orange-400 [&_a]:underline [&_a]:font-medium hover:[&_a]:text-orange-700 dark:hover:[&_a]:text-orange-300"
             style={{ fontSize: `${fontSize}px`, textAlign: 'justify', hyphens: 'auto' }}
             dangerouslySetInnerHTML={{ __html: highlightedHtml }}
             onClick={(e) => {
               const target = (e.target as HTMLElement).closest('a');
               if (target) {
-                const href = target.getAttribute('href');
-                if (href && !href.startsWith('#')) {
+                const rawHref = target.getAttribute('href');
+                if (rawHref && !rawHref.startsWith('#')) {
                   e.preventDefault();
+                  const safeHref = toHttpOrHttpsUrl(rawHref);
+                  if (!safeHref) {
+                    console.warn('Scartato link con protocollo non sicuro:', rawHref);
+                    return;
+                  }
                   trackEvent('article_link_click', {
-                    link_url: href,
+                    link_url: safeHref,
                     link_text: target.innerText?.trim() || '',
                     article_title: post.title,
                     article_id: post.id,
                   });
-                  openExternalBrowser(href);
+                  if (onInterceptLink && isMagazineUrl(safeHref)) {
+                    onInterceptLink(safeHref);
+                  } else {
+                    openExternalBrowser(safeHref);
+                  }
                 }
               }
             }}
           />
 
           {/* Original Source Link Banner */}
-          <div className="mt-10 p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                Leggi l'articolo originale su 5LB Magazine
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Consulta commenti, immagini e contenuti multimediali su Blogger.
-              </p>
+          {post.isAccadeOggi ? (
+            <div className="mt-10 p-5 rounded-2xl bg-sky-50/80 dark:bg-slate-800/60 border border-sky-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                  Post dal canale Telegram @magazine5LB
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Consulta il post originale, i commenti e le reazioni su Telegram.
+                </p>
+              </div>
+              {safePostLink && (
+                <a
+                  href={safePostLink ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    trackEvent('open_original_telegram_post', {
+                      link_url: safePostLink,
+                      article_title: post.title,
+                      article_id: post.id,
+                    });
+                    openExternalBrowser(safePostLink);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#229ED9] hover:bg-[#1d8bc0] text-white font-medium text-xs transition shadow-xs cursor-pointer"
+                >
+                  <span>Apri su Telegram</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
             </div>
-            <a
-              href={post.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => {
-                e.preventDefault();
-                trackEvent('open_original_blogger_post', {
-                  link_url: post.link,
-                  article_title: post.title,
-                  article_id: post.id,
-                });
-                openExternalBrowser(post.link);
-              }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-xs cursor-pointer"
-            >
-              <span>Vai a magazine.5lb.eu</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
+          ) : (
+            <div className="mt-10 p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                  Leggi l'articolo originale su 5LB Magazine
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Consulta commenti, immagini e contenuti multimediali su Blogger.
+                </p>
+              </div>
+              {safePostLink && (
+                <a
+                  href={safePostLink ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    trackEvent('open_original_blogger_post', {
+                      link_url: safePostLink,
+                      article_title: post.title,
+                      article_id: post.id,
+                    });
+                    if (onInterceptLink && isMagazineUrl(safePostLink)) {
+                      onInterceptLink(safePostLink);
+                    } else {
+                      openExternalBrowser(safePostLink);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition shadow-xs cursor-pointer"
+                >
+                  <span>Vai a magazine.5lb.eu</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
