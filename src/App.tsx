@@ -361,6 +361,31 @@ export default function App() {
     // Traccia la visualizzazione iniziale di pagina
     trackPageView(window.location.pathname || '/', '5LB Magazine');
 
+    // Gestione parametri query da scorciatoie PWA / launcher
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const tabParam = urlParams.get('tab');
+      const actionParam = urlParams.get('action');
+
+      if (tabParam === 'archive' || tabParam === 'latest') {
+        // Mostra "Il mio archivio"
+        setActiveFilter({ type: 'quick', id: 'all' });
+      } else if (tabParam === 'today' || tabParam === 'accade-oggi') {
+        setActiveFilter({ type: 'quick', id: 'today' });
+      }
+
+      if (actionParam === 'search') {
+        setActiveFilter({ type: 'quick', id: 'all' });
+      }
+
+      if (tabParam || actionParam || urlParams.has('launch_pwa')) {
+        const cleanUrl = window.location.pathname + (window.location.hash || '');
+        window.history.replaceState(null, '', cleanUrl);
+      }
+    } catch {
+      // Ignora errori di parsing parametri URL
+    }
+
     // Mostra il banner del consenso prima dell'uso se l'utente non ha ancora espresso una scelta
     const savedConsent = getStoredCookieConsent();
     if (!savedConsent || !savedConsent.hasChosen) {
