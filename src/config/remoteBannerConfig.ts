@@ -22,14 +22,15 @@ export const BANNER_CACHE_WINDOW_MS = 120000; // 2 minuti
 
 export const DEFAULT_FALLBACK_BANNER: RemoteBannerConfig = {
   enabled: true,
-  id: 'welcome-announcement-v1',
-  title: '5LB Magazine News',
-  message: 'Consulta tutti gli articoli offline e installa l’App sul tuo dispositivo.',
-  icon: 'newspaper',
+  id: 'annuncio-2026-v2',
+  title: 'Ricerca semantica',
+  message: 'Hai una domanda? Falla a 5LB Magazine!',
+  icon: 'sparkles',
   theme: 'blue',
   action: {
-    label: 'Installa App',
-    type: 'pwa_install',
+    label: 'Chiedi',
+    type: 'link',
+    url: 'https://notebook.google.com/notebook/47913756-695d-4076-b64a-be74986cfdf8',
   },
   canDismiss: true,
 };

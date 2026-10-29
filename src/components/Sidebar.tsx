@@ -37,7 +37,21 @@ import {
   IconFramework,
   IconHameriano,
   IconAndrogyne,
-  IconCovid19
+  IconCovid19,
+  IconLungs,
+  IconMouth,
+  IconStethoscope,
+  IconGastro,
+  IconHeartEzio,
+  IconUrinary,
+  IconDNA,
+  IconBone,
+  IconSkin,
+  IconBrain,
+  IconEyeSenses,
+  IconAllergiesLeaf,
+  IconLightningPsicosi,
+  IconScalesLaterality
 } from './CustomIcons';
 import { Logo5LB } from './Logo5LB';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -183,6 +197,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return <IconAndrogyne className="w-5 h-5" />;
       case 'custom-covid19':
         return <IconCovid19 className="w-5 h-5" />;
+      // Categorie EZIOLOGIA
+      case 'ezio-respiratorie':
+        return <IconLungs className="w-5 h-5" />;
+      case 'ezio-bocca':
+        return <IconMouth className="w-5 h-5" />;
+      case 'ezio-seno':
+        return <IconStethoscope className="w-5 h-5" />;
+      case 'ezio-gastro':
+        return <IconGastro className="w-5 h-5" />;
+      case 'ezio-cardio':
+        return <IconHeartEzio className="w-5 h-5" />;
+      case 'ezio-urinario':
+        return <IconUrinary className="w-5 h-5" />;
+      case 'ezio-genitale':
+        return <IconDNA className="w-5 h-5" />;
+      case 'ezio-muscolo':
+        return <IconBone className="w-5 h-5" />;
+      case 'ezio-pelle':
+        return <IconSkin className="w-5 h-5" />;
+      case 'ezio-nervoso':
+        return <IconBrain className="w-5 h-5" />;
+      case 'ezio-sensi':
+        return <IconEyeSenses className="w-5 h-5" />;
+      case 'ezio-allergie':
+        return <IconAllergiesLeaf className="w-5 h-5" />;
+      case 'ezio-psicosi':
+        return <IconLightningPsicosi className="w-5 h-5" />;
+      case 'ezio-lateralita':
+        return <IconScalesLaterality className="w-5 h-5" />;
       default:
         return <Bookmark className="w-5 h-5 text-slate-800 dark:text-slate-200" />;
     }

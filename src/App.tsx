@@ -151,10 +151,9 @@ export default function App() {
   const [accadeOggiPosts, setAccadeOggiPosts] = useState<BloggerPost[]>(() => getCachedAccadeOggiPosts());
   const [isAccadeOggiLoading, setIsAccadeOggiLoading] = useState<boolean>(() => getCachedAccadeOggiPosts().length === 0);
 
-  // Search state
+  // Search state (la ricerca è puramente locale, nessun download automatico durante la digitazione)
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
-  const [onlineSearchResults, setOnlineSearchResults] = useState<Record<string, BloggerPost[]>>({});
   const activeSearchReqIdRef = useRef<number>(0);
 
 
@@ -758,10 +757,7 @@ export default function App() {
         baseIsLoadingMore = false;
       } else if (activeFilter.id === 'all') {
         // "Il mio archivio" (Blogger archive articles only, strictly excludes Accade Oggi)
-        const q = searchQuery.toLowerCase().trim();
-        const onlinePosts = q ? (onlineSearchResults[q] || []) : [];
-        const onlineIdSet = new Set(onlinePosts.map((p) => p.id));
-        basePosts = [...onlinePosts, ...posts.filter((p) => !onlineIdSet.has(p.id))];
+        basePosts = posts;
         baseHasMore = mainFeedHasMore;
         baseIsLoading = isLoading;
         baseIsLoadingMore = isMainFeedLoadingMore;
@@ -774,7 +770,7 @@ export default function App() {
       basePosts = posts;
     }
 
-    // Search query filter (applies within current view/category with exact word/phrase matching)
+    // Search query filter (applies purely within local articles of current view/category with exact word/phrase matching)
     if (searchQuery.trim()) {
       const filtered = basePosts.filter((p) => postMatchesExactPhrase(p, searchQuery));
 
@@ -796,7 +792,6 @@ export default function App() {
     posts,
     accadeOggiPosts,
     searchQuery,
-    onlineSearchResults,
     activeFilter,
     categoryFeeds,
     isCategoryLoading,
@@ -1124,72 +1119,16 @@ export default function App() {
     openExternalBrowser('https://t.me/s/magazine5LB');
   };
 
-  // 1) Debounce di 500ms per ricerca remota online (solo se query >= 3 caratteri)
-  // Il filtro locale sui post già presenti in cache resta 100% istantaneo in useMemo
-  useEffect(() => {
-    const trimmed = searchQuery.trim();
-    if (trimmed.length < 3) {
-      return;
-    }
-
-    if (onlineSearchResults[trimmed.toLowerCase()]) {
-      return;
-    }
-
-    const reqId = ++activeSearchReqIdRef.current;
-    const timer = setTimeout(async () => {
-      setIsSearchingOnline(true);
-      try {
-        const res = await searchBloggerArchive(trimmed, 30);
-        // Scarta la risposta se nel frattempo è partita una ricerca più recente (race conditions)
-        if (reqId !== activeSearchReqIdRef.current || res.isStale) {
-          return;
-        }
-
-        if (res.posts.length > 0) {
-          setOnlineSearchResults((prev) => ({
-            ...prev,
-            [trimmed.toLowerCase()]: res.posts,
-          }));
-
-          setPosts((prev) => {
-            const map = new Map<string, BloggerPost>();
-            for (const p of prev) map.set(p.id, p);
-            for (const p of res.posts) {
-              const existing = map.get(p.id);
-              map.set(
-                p.id,
-                existing ? { ...p, isRead: existing.isRead, isFavorite: existing.isFavorite } : p
-              );
-            }
-            const merged = Array.from(map.values());
-            merged.sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime());
-            saveArticlesToDB(merged).catch(() => {});
-            return merged;
-          });
-        }
-      } catch (err) {
-        if (reqId === activeSearchReqIdRef.current) {
-          console.warn('Errore ricerca remota archivio (debounced):', err);
-        }
-      } finally {
-        if (reqId === activeSearchReqIdRef.current) {
-          setIsSearchingOnline(false);
-        }
-      }
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [searchQuery, onlineSearchResults]);
-
-  // Online archive search handler manuale (es. click pulsante "Cerca altri risultati online")
+  // Ricerca archivio online su richiesta: eseguita SOLO quando l'utente preme il pulsante sul fondo della pagina.
+  // Se trova articoli non ancora presenti in locale, li aggiunge all'archivio e li salva sul database IndexedDB.
+  // Se non trova niente di nuovo, avvisa chiaramente che non è stato trovato niente di nuovo online.
   const handleSearchOnline = useCallback(async (query: string) => {
     const trimmed = query.trim();
     if (trimmed.length < 3) {
       setToastNotification({
         id: 'search-min-chars-' + Date.now(),
         title: 'Ricerca archivio online',
-        body: 'La ricerca remota richiede almeno 3 caratteri.',
+        body: 'La ricerca online richiede almeno 3 caratteri.',
         date: new Date().toISOString(),
         read: false,
       });
@@ -1199,52 +1138,61 @@ export default function App() {
 
     const reqId = ++activeSearchReqIdRef.current;
     setIsSearchingOnline(true);
-    trackEvent('search', { search_term: trimmed });
+    trackEvent('search_online_manual', { search_term: trimmed });
     try {
       const res = await searchBloggerArchive(trimmed, 30);
-      // Se una risposta JSONP arriva dopo che è già partita una ricerca più recente, scartala
+      // Scarta la risposta se nel frattempo è partita un'altra richiesta (race condition)
       if (reqId !== activeSearchReqIdRef.current || res.isStale) {
         return;
       }
 
-      if (res.posts.length > 0) {
-        // Save in online search results map for instant view access
-        setOnlineSearchResults((prev) => ({
-          ...prev,
-          [trimmed.toLowerCase()]: res.posts,
-        }));
+      // Confronta con gli articoli già memorizzati nell'archivio locale
+      const currentArchive = postsRef.current;
+      const existingIds = new Set(currentArchive.map((p) => p.id));
+      const newArticles = res.posts.filter((p) => !existingIds.has(p.id));
 
+      if (newArticles.length > 0) {
+        // Aggiungi solo i nuovi articoli all'archivio locale e sincronizza su IndexedDB
+        let totalCount = 0;
         setPosts((prev) => {
           const map = new Map<string, BloggerPost>();
           for (const p of prev) map.set(p.id, p);
-          for (const p of res.posts) {
-            const existing = map.get(p.id);
-            map.set(
-              p.id,
-              existing ? { ...p, isRead: existing.isRead, isFavorite: existing.isFavorite } : p
-            );
+          for (const p of newArticles) {
+            map.set(p.id, p);
           }
           const merged = Array.from(map.values());
           merged.sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime());
-
-          // Persist merged cache to IndexedDB
+          totalCount = merged.length;
           saveArticlesToDB(merged).catch(() => {});
           return merged;
         });
 
+        // Verifica sblocco badge in base al nuovo totale degli articoli nell'archivio
+        if (totalCount > 0) {
+          const newlyUnlocked = checkAndUnlockBadges(totalCount);
+          if (newlyUnlocked.length > 0) {
+            setCelebrationBadge(newlyUnlocked[newlyUnlocked.length - 1]);
+          }
+        }
+
+        // Passa alla vista "Il mio archivio" per mostrare subito tutti i risultati
+        setActiveFilter({ type: 'quick', id: 'all' });
+
         setToastNotification({
           id: 'search-success-' + Date.now(),
-          title: 'Articoli importati dall’archivio',
-          body: `Trovati e importati ${res.posts.length} articoli per "${trimmed}".`,
+          title: 'Nuovi articoli aggiunti all’archivio',
+          body: `Trovati e aggiunti all'archivio ${newArticles.length} ${
+            newArticles.length === 1 ? 'nuovo articolo' : 'nuovi articoli'
+          } per "${trimmed}".`,
           date: new Date().toISOString(),
           read: false,
         });
       } else {
-        // Nessun articolo trovato online: mostra fumetto informativo e RESTA SULLA PAGINA DI RICERCA
+        // Non ha trovato niente di nuovo online (oppure gli articoli trovati erano già presenti in archivio)
         setToastNotification({
           id: 'search-empty-' + Date.now(),
-          title: 'Nessun risultato online',
-          body: `Nessun nuovo articolo trovato nell'archivio online per "${trimmed}".`,
+          title: 'Nessun nuovo articolo online',
+          body: `Nessun nuovo articolo trovato online per "${trimmed}".`,
           date: new Date().toISOString(),
           read: false,
         });
@@ -1255,7 +1203,7 @@ export default function App() {
         setToastNotification({
           id: 'search-error-' + Date.now(),
           title: 'Ricerca online non riuscita',
-          body: `Impossibile completare la ricerca per "${trimmed}". Riprova più tardi.`,
+          body: `Impossibile completare la ricerca online per "${trimmed}". Verifica la connessione di rete e riprova.`,
           date: new Date().toISOString(),
           read: false,
         });

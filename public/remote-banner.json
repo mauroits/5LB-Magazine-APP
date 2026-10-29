@@ -1,13 +1,14 @@
 {
   "enabled": true,
-  "id": "annuncio-2026-v1",
-  "title": "5LB Magazine News",
-  "message": "Benvenuto nella nuova versione! Aggiungi l'app alla schermata Home per leggere gli articoli anche offline.",
-  "icon": "bell",
+  "id": "annuncio-2026-v2",
+  "title": "Ricerca semantica",
+  "message": "Hai una domanda? Falla a 5LB Magazine!",
+  "icon": "sparkles",
   "theme": "blue",
   "action": {
-    "label": "Installa App",
-    "type": "pwa_install"
+    "label": "Chiedi",
+    "type": "link",
+    "url": "https://notebook.google.com/notebook/47913756-695d-4076-b64a-be74986cfdf8"
   },
   "canDismiss": true
 }

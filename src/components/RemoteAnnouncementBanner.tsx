@@ -50,40 +50,52 @@ const ICON_MAP: Record<BannerIconType, React.ComponentType<{ className?: string 
 const THEME_STYLES: Record<
   BannerThemeColor,
   {
+    containerBg: string;
     containerBorder: string;
+    badge: string;
     iconBg: string;
     iconText: string;
     button: string;
   }
 > = {
   blue: {
-    containerBorder: 'border-blue-500/40',
-    iconBg: 'bg-blue-600/25 border-blue-400/40',
-    iconText: 'text-blue-400',
+    containerBg: 'bg-white dark:bg-slate-900',
+    containerBorder: 'border-blue-200/90 dark:border-blue-800/70 ring-1 ring-blue-500/10 dark:ring-blue-400/10',
+    badge: 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/80',
+    iconBg: 'bg-blue-50 dark:bg-blue-950/70 border-blue-200/80 dark:border-blue-800/70',
+    iconText: 'text-blue-600 dark:text-blue-400',
     button: 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-500/20',
   },
   amber: {
-    containerBorder: 'border-amber-500/40',
-    iconBg: 'bg-amber-600/25 border-amber-400/40',
-    iconText: 'text-amber-400',
+    containerBg: 'bg-white dark:bg-slate-900',
+    containerBorder: 'border-amber-200/90 dark:border-amber-800/70 ring-1 ring-amber-500/10 dark:ring-amber-400/10',
+    badge: 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/80',
+    iconBg: 'bg-amber-50 dark:bg-amber-950/70 border-amber-200/80 dark:border-amber-800/70',
+    iconText: 'text-amber-600 dark:text-amber-400',
     button: 'bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold shadow-amber-500/20',
   },
   emerald: {
-    containerBorder: 'border-emerald-500/40',
-    iconBg: 'bg-emerald-600/25 border-emerald-400/40',
-    iconText: 'text-emerald-400',
+    containerBg: 'bg-white dark:bg-slate-900',
+    containerBorder: 'border-emerald-200/90 dark:border-emerald-800/70 ring-1 ring-emerald-500/10 dark:ring-emerald-400/10',
+    badge: 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/80',
+    iconBg: 'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-200/80 dark:border-emerald-800/70',
+    iconText: 'text-emerald-600 dark:text-emerald-400',
     button: 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-500/20',
   },
   purple: {
-    containerBorder: 'border-purple-500/40',
-    iconBg: 'bg-purple-600/25 border-purple-400/40',
-    iconText: 'text-purple-400',
+    containerBg: 'bg-white dark:bg-slate-900',
+    containerBorder: 'border-purple-200/90 dark:border-purple-800/70 ring-1 ring-purple-500/10 dark:ring-purple-400/10',
+    badge: 'bg-purple-500/10 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-800/80',
+    iconBg: 'bg-purple-50 dark:bg-purple-950/70 border-purple-200/80 dark:border-purple-800/70',
+    iconText: 'text-purple-600 dark:text-purple-400',
     button: 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-500/20',
   },
   orange: {
-    containerBorder: 'border-orange-500/40',
-    iconBg: 'bg-orange-600/25 border-orange-400/40',
-    iconText: 'text-orange-400',
+    containerBg: 'bg-white dark:bg-slate-900',
+    containerBorder: 'border-orange-200/90 dark:border-orange-800/70 ring-1 ring-orange-500/10 dark:ring-orange-400/10',
+    badge: 'bg-orange-500/10 text-orange-800 dark:text-orange-300 border-orange-200 dark:border-orange-800/80',
+    iconBg: 'bg-orange-50 dark:bg-orange-950/70 border-orange-200/80 dark:border-orange-800/70',
+    iconText: 'text-orange-600 dark:text-orange-400',
     button: 'bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-orange-500/20',
   },
 };
@@ -119,7 +131,7 @@ function renderMessageWithLinks(text: string, onLinkClick: (url: string) => void
             e.stopPropagation();
             onLinkClick(url);
           }}
-          className="text-blue-300 hover:text-blue-100 underline underline-offset-2 font-medium cursor-pointer"
+          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline underline-offset-2 font-medium cursor-pointer"
         >
           {label}
         </button>
@@ -135,7 +147,7 @@ function renderMessageWithLinks(text: string, onLinkClick: (url: string) => void
             e.stopPropagation();
             onLinkClick(url);
           }}
-          className="text-blue-300 hover:text-blue-100 underline underline-offset-2 font-medium cursor-pointer"
+          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline underline-offset-2 font-medium cursor-pointer"
         >
           {url}
         </button>
@@ -277,70 +289,79 @@ export const RemoteAnnouncementBanner: React.FC<RemoteAnnouncementBannerProps> =
 
   return (
     <>
-      <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 pt-3 sm:pt-4 pb-0">
+      <div className="w-full max-w-3xl mx-auto px-3 sm:px-6 pt-4 sm:pt-5 pb-1">
         <div
           role="region"
           aria-label="Avviso in evidenza"
-          className={`w-full bg-[#0e1838] text-white p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl shadow-lg border ${theme.containerBorder} flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300 backdrop-blur-md`}
+          className={`w-full ${theme.containerBg} p-4 sm:py-4 sm:px-5 rounded-2xl sm:rounded-3xl shadow-md sm:shadow-lg border ${theme.containerBorder} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5 sm:gap-4 animate-in fade-in slide-in-from-top-2 duration-300 backdrop-blur-md transition-all`}
         >
           {/* Blocco Icona e Testo */}
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div
-            className={`w-10 h-10 rounded-2xl ${theme.iconBg} border flex items-center justify-center shrink-0 ${theme.iconText} shadow-inner`}
-          >
-            <IconComponent className="w-5 h-5" />
-          </div>
+          <div className="flex items-start sm:items-center gap-3 sm:gap-3.5 min-w-0 flex-1">
+            <div
+              className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl ${theme.iconBg} border flex items-center justify-center shrink-0 ${theme.iconText} shadow-xs mt-0.5 sm:mt-0`}
+            >
+              <IconComponent className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
+            </div>
 
-          <div className="min-w-0 flex-1">
-            <h4 className="text-xs sm:text-sm font-bold text-white truncate leading-tight">
-              {config.title}
-            </h4>
-            <div className="text-[11px] sm:text-xs text-slate-300 leading-snug line-clamp-2 mt-0.5">
-              {renderMessageWithLinks(config.message, (url) => {
-                if (action?.type === 'article' && onOpenArticle) {
-                  onOpenArticle(url);
-                } else {
-                  onOpenUrl(url);
-                }
-              })}
+            <div className="min-w-0 flex-1">
+              {/* Micro-badge tematico */}
+              <div className="flex items-center gap-1.5 mb-1">
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase border shadow-2xs backdrop-blur-xs ${theme.badge}`}
+                >
+                  Avviso
+                </span>
+              </div>
+
+              <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 truncate leading-snug">
+                {config.title}
+              </h4>
+              <div className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2 mt-0.5">
+                {renderMessageWithLinks(config.message, (url) => {
+                  if (action?.type === 'article' && onOpenArticle) {
+                    onOpenArticle(url);
+                  } else {
+                    onOpenUrl(url);
+                  }
+                })}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Pulsanti Azione e Chiusura */}
-        <div className="flex items-center gap-2 shrink-0">
-          {hasAction && (
-            <button
-              type="button"
-              onClick={handleActionClick}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition active:scale-95 cursor-pointer shadow-sm ${theme.button}`}
-            >
-              <span>{action!.label}</span>
-              {action?.type === 'pwa_install' ? (
-                <Download className="w-3.5 h-3.5" />
-              ) : action?.openIn === 'external' ? (
-                <ExternalLink className="w-3.5 h-3.5" />
-              ) : (
-                <ArrowRight className="w-3.5 h-3.5" />
-              )}
-            </button>
-          )}
+          {/* Pulsanti Azione e Chiusura */}
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            {hasAction && (
+              <button
+                type="button"
+                onClick={handleActionClick}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm transition active:scale-95 cursor-pointer shadow-xs ${theme.button}`}
+              >
+                <span>{action!.label}</span>
+                {action?.type === 'pwa_install' ? (
+                  <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                ) : action?.openIn === 'external' ? (
+                  <ExternalLink className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                ) : (
+                  <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                )}
+              </button>
+            )}
 
-          {/* Pulsante Chiusura X ad Alto Contrasto: visibile e nitido anche sul blu scuro */}
-          {config.canDismiss !== false && (
-            <button
-              type="button"
-              onClick={handleDismiss}
-              title="Chiudi avviso"
-              aria-label="Chiudi avviso"
-              className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/35 active:bg-white/45 text-white border border-white/40 flex items-center justify-center shrink-0 shadow-md transition active:scale-90 cursor-pointer"
-            >
-              <X className="w-4 h-4 stroke-[2.5]" />
-            </button>
-          )}
+            {/* Pulsante Chiusura X ad Alto Contrasto e Design Pulito */}
+            {config.canDismiss !== false && (
+              <button
+                type="button"
+                onClick={handleDismiss}
+                title="Chiudi avviso"
+                aria-label="Chiudi avviso"
+                className="w-8 h-8 rounded-full text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/80 flex items-center justify-center shrink-0 transition active:scale-90 cursor-pointer shadow-2xs"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
 
       {/* Modale guida installazione PWA se attivata tramite azione pwa_install */}
       <PWAInstallGuideModal

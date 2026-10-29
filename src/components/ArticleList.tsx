@@ -412,7 +412,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                 </button>
               )}
 
-              {searchQuery?.trim() && !isSubcategory && onSearchOnline && (
+              {searchQuery?.trim() && isAllArchive && onSearchOnline && (
                 <button
                   onClick={() => onSearchOnline(searchQuery)}
                   disabled={isSearchingOnline}
