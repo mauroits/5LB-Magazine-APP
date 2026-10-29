@@ -293,71 +293,73 @@ export const RemoteAnnouncementBanner: React.FC<RemoteAnnouncementBannerProps> =
         <div
           role="region"
           aria-label="Avviso in evidenza"
-          className={`w-full ${theme.containerBg} p-4 sm:py-4 sm:px-5 rounded-2xl sm:rounded-3xl shadow-md sm:shadow-lg border ${theme.containerBorder} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5 sm:gap-4 animate-in fade-in slide-in-from-top-2 duration-300 backdrop-blur-md transition-all`}
+          className={`relative w-full ${theme.containerBg} p-4 sm:py-4 sm:px-5 rounded-2xl sm:rounded-3xl shadow-md sm:shadow-lg border ${theme.containerBorder} animate-in fade-in slide-in-from-top-2 duration-300 backdrop-blur-md transition-all`}
         >
-          {/* Blocco Icona e Testo */}
-          <div className="flex items-start sm:items-center gap-3 sm:gap-3.5 min-w-0 flex-1">
-            <div
-              className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl ${theme.iconBg} border flex items-center justify-center shrink-0 ${theme.iconText} shadow-xs mt-0.5 sm:mt-0`}
+          {/* Pulsante Chiusura X da solo nell'angolo in alto a destra */}
+          {config.canDismiss !== false && (
+            <button
+              type="button"
+              onClick={handleDismiss}
+              title="Chiudi avviso"
+              aria-label="Chiudi avviso"
+              className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 w-7 h-7 sm:w-8 sm:h-8 rounded-full text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center shrink-0 transition active:scale-90 cursor-pointer shadow-2xs z-10"
             >
-              <IconComponent className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
-            </div>
+              <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </button>
+          )}
 
-            <div className="min-w-0 flex-1">
-              {/* Micro-badge tematico */}
-              <div className="flex items-center gap-1.5 mb-1">
-                <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase border shadow-2xs backdrop-blur-xs ${theme.badge}`}
-                >
-                  Avviso
-                </span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pr-6 sm:pr-8">
+            {/* Blocco Icona e Testo */}
+            <div className="flex items-start gap-3 sm:gap-3.5 min-w-0 flex-1">
+              <div
+                className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl ${theme.iconBg} border flex items-center justify-center shrink-0 ${theme.iconText} shadow-xs mt-0.5`}
+              >
+                <IconComponent className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
               </div>
 
-              <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 truncate leading-snug">
-                {config.title}
-              </h4>
-              <div className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2 mt-0.5">
-                {renderMessageWithLinks(config.message, (url) => {
-                  if (action?.type === 'article' && onOpenArticle) {
-                    onOpenArticle(url);
-                  } else {
-                    onOpenUrl(url);
-                  }
-                })}
+              <div className="min-w-0 flex-1">
+                {/* Micro-badge tematico */}
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase border shadow-2xs backdrop-blur-xs ${theme.badge}`}
+                  >
+                    Avviso
+                  </span>
+                </div>
+
+                <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 leading-snug break-words">
+                  {config.title}
+                </h4>
+                <div className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed mt-1 break-words">
+                  {renderMessageWithLinks(config.message, (url) => {
+                    if (action?.type === 'article' && onOpenArticle) {
+                      onOpenArticle(url);
+                    } else {
+                      onOpenUrl(url);
+                    }
+                  })}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Pulsanti Azione e Chiusura */}
-          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            {/* Pulsante Azione: su mobile va sotto il testo senza comprimerlo, su desktop si affianca */}
             {hasAction && (
-              <button
-                type="button"
-                onClick={handleActionClick}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm transition active:scale-95 cursor-pointer shadow-xs ${theme.button}`}
-              >
-                <span>{action!.label}</span>
-                {action?.type === 'pwa_install' ? (
-                  <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                ) : action?.openIn === 'external' ? (
-                  <ExternalLink className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                ) : (
-                  <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                )}
-              </button>
-            )}
-
-            {/* Pulsante Chiusura X ad Alto Contrasto e Design Pulito */}
-            {config.canDismiss !== false && (
-              <button
-                type="button"
-                onClick={handleDismiss}
-                title="Chiudi avviso"
-                aria-label="Chiudi avviso"
-                className="w-8 h-8 rounded-full text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/80 flex items-center justify-center shrink-0 transition active:scale-90 cursor-pointer shadow-2xs"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="shrink-0 pl-13 sm:pl-0 pt-0.5 sm:pt-0">
+                <button
+                  type="button"
+                  onClick={handleActionClick}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-semibold text-xs sm:text-sm transition active:scale-95 cursor-pointer shadow-xs ${theme.button}`}
+                >
+                  <span>{action!.label}</span>
+                  {action?.type === 'pwa_install' ? (
+                    <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  ) : action?.openIn === 'external' ? (
+                    <ExternalLink className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  ) : (
+                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  )}
+                </button>
+              </div>
             )}
           </div>
         </div>
